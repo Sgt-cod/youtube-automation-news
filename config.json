@@ -1,0 +1,38 @@
+{
+  "tipo": "noticias",
+  "canal": {
+    "nome": "Notícias Flash",
+    "descricao": "Notícias importantes todos os dias"
+  },
+  
+  "duracao_minutos": 10,
+  
+  "voz": "pt-BR-AntonioNeural",
+  
+  "rss_feeds": [
+    "https://g1.globo.com/rss/g1/",
+    "https://g1.globo.com/rss/g1/tecnologia/",
+    "https://g1.globo.com/rss/g1/ciencia-e-saude/",
+    "https://canaltech.com.br/rss/",
+    "https://tecnoblog.net/feed/",
+    "https://olhardigital.com.br/feed/"
+  ],
+  
+  "temas": [
+    "notícias de tecnologia",
+    "descobertas científicas",
+    "inovações recentes",
+    "atualizações importantes"
+  ],
+  
+  "palavras_chave_imagens": [
+    "breaking news",
+    "technology news",
+    "science discovery",
+    "newspaper",
+    "digital media",
+    "information",
+    "communication",
+    "business news"
+  ]
+}
