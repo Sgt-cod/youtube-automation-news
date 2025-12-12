@@ -135,37 +135,43 @@ def gerar_roteiro(duracao_alvo, noticia=None):
 
 # ========== VOZ COM EDGE TTS ==========
 
-async def criar_audio_async(texto, output_file):
-    """Cria áudio com Edge TTS com retry"""
-    voz = config.get('voz', 'pt-BR-FranciscaNeural')
+def criar_audio(texto, output_file):
+    """Wrapper síncrono com fallback e debug"""
+    print("=" * 50)
+    print("🎙️ TENTANDO EDGE TTS...")
+    print("=" * 50)
     
-    for tentativa in range(3):
-        try:
-            communicate = edge_tts.Communicate(
-                texto,
-                voz,
-                rate="+20%",
-                pitch="+0Hz"
-            )
+    try:
+        # Testar se asyncio funciona
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        print("✓ Loop de eventos criado")
+        
+        loop.run_until_complete(criar_audio_async(texto, output_file))
+        loop.close()
+        
+        # Verificar se arquivo foi criado
+        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            print("✅ SUCESSO! Áudio criado com Edge TTS")
+            print(f"   Tamanho: {os.path.getsize(output_file)} bytes")
+            return output_file
+        else:
+            raise Exception("Arquivo não criado ou vazio")
             
-            await asyncio.wait_for(
-                communicate.save(output_file),
-                timeout=120
-            )
-            
-            print(f"✅ Edge TTS: sucesso na tentativa {tentativa + 1}")
-            return
-            
-        except asyncio.TimeoutError:
-            print(f"⏱️ Timeout na tentativa {tentativa + 1}")
-            if tentativa < 2:
-                await asyncio.sleep(10)
-        except Exception as e:
-            print(f"⚠️ Erro na tentativa {tentativa + 1}: {e}")
-            if tentativa < 2:
-                await asyncio.sleep(10)
-    
-    raise Exception("Edge TTS falhou após 3 tentativas")
+    except Exception as e:
+        print("=" * 50)
+        print(f"❌ EDGE TTS FALHOU!")
+        print(f"   Erro: {type(e).__name__}: {e}")
+        print("=" * 50)
+        print("🔄 Usando gTTS como backup...")
+        
+        from gtts import gTTS
+        tts = gTTS(text=texto, lang='pt-br', slow=False)
+        tts.save(output_file)
+        
+        print("⚠️ Áudio criado com gTTS (voz robótica)")
+        return output_file
 
 def criar_audio(texto, output_file):
     """Wrapper síncrono com fallback para gTTS"""
@@ -186,34 +192,37 @@ def criar_audio(texto, output_file):
 # ========== BUSCA DE MÍDIAS ==========
 
 def buscar_midia_pexels(palavras_chave, tipo='video', quantidade=1):
-    """Busca vídeos ou fotos no Pexels com tradução"""
+    """Busca vídeos com VARIEDADE e randomização"""
     headers = {'Authorization': PEXELS_API_KEY}
     
+    # Expandir traduções
     traducoes = {
-        'tecnologia': 'technology innovation digital',
-        'tecnologias': 'modern technology devices',
-        'avanço tecnológico': 'future technology innovation',
-        'espaço': 'space cosmos universe galaxy',
-        'oceano': 'ocean underwater sea marine',
-        'animais': 'wild animals wildlife nature',
-        'ciência': 'science laboratory research',
-        'história': 'ancient history ruins',
-        'natureza': 'nature landscape beautiful',
-        'corpo humano': 'human body anatomy health',
-        'mente': 'brain mind psychology',
-        'invenções': 'inventions innovation technology'
+        'tecnologia': ['technology innovation', 'modern tech', 'digital future', 'ai robot', 'gadgets'],
+        'espaço': ['space galaxy', 'astronomy stars', 'cosmos universe', 'planets nebula', 'astronaut'],
+        'oceano': ['ocean waves', 'underwater sea', 'marine life', 'coral reef', 'deep sea'],
+        'animais': ['wild animals', 'wildlife nature', 'safari africa', 'jungle forest', 'animal planet'],
+        'ciência': ['science lab', 'laboratory research', 'experiment', 'chemistry', 'scientist'],
+        'natureza': ['nature landscape', 'mountain forest', 'waterfall', 'beautiful scenery', 'wilderness']
     }
     
     palavra_original = palavras_chave[0] if palavras_chave else 'nature'
-    palavra_busca = traducoes.get(palavra_original.lower(), palavra_original)
     
-    print(f"🔍 Buscando: '{palavra_busca}'")
+    # Pegar LISTA de traduções (não só uma)
+    termos_busca = traducoes.get(palavra_original.lower(), [palavra_original])
+    
+    # RANDOMIZAR termo de busca
+    palavra_busca = random.choice(termos_busca)
+    
+    # RANDOMIZAR página (não pegar sempre as primeiras)
+    pagina = random.randint(1, 3)
+    
+    print(f"🔍 Buscando: '{palavra_busca}' (página {pagina})")
     
     midias = []
     
     if tipo == 'video':
         orientacao = 'portrait' if VIDEO_TYPE == 'short' else 'landscape'
-        url = f'https://api.pexels.com/videos/search?query={palavra_busca}&per_page=20&orientation={orientacao}'
+        url = f'https://api.pexels.com/videos/search?query={palavra_busca}&per_page=30&page={pagina}&orientation={orientacao}'
         
         try:
             response = requests.get(url, headers=headers, timeout=15)
@@ -221,25 +230,37 @@ def buscar_midia_pexels(palavras_chave, tipo='video', quantidade=1):
                 data = response.json()
                 videos = data.get('videos', [])
                 
-                for video in videos[:quantidade * 2]:
+                # EMBARALHAR resultados
+                random.shuffle(videos)
+                
+                for video in videos:
                     for file in video['video_files']:
                         if VIDEO_TYPE == 'short':
-                            if file.get('width', 0) == 1080 and file.get('height', 0) >= 1920:
+                            # Aceitar mais resoluções verticais
+                            if file.get('width', 0) <= 1080 and file.get('height', 0) >= 1920:
+                                midias.append((file['link'], 'video'))
+                                break
+                            # Fallback: qualquer vertical
+                            elif file.get('height', 0) > file.get('width', 0):
                                 midias.append((file['link'], 'video'))
                                 break
                         else:
-                            if file.get('width', 0) >= 1920 and file.get('height', 0) == 1080:
+                            if file.get('width', 0) >= 1280 and file.get('height', 0) >= 720:
                                 midias.append((file['link'], 'video'))
                                 break
                     
                     if len(midias) >= quantidade:
                         break
+                        
+                print(f"   ✓ Encontrou {len(midias)} vídeos")
+                
         except Exception as e:
-            print(f"⚠️ Erro ao buscar vídeos: {e}")
+            print(f"   ⚠️ Erro ao buscar vídeos: {e}")
     
+    # SEMPRE complementar com fotos
     if len(midias) < quantidade:
         orientacao = 'portrait' if VIDEO_TYPE == 'short' else 'landscape'
-        url = f'https://api.pexels.com/v1/search?query={palavra_busca}&per_page=30&orientation={orientacao}'
+        url = f'https://api.pexels.com/v1/search?query={palavra_busca}&per_page=50&page={pagina}&orientation={orientacao}'
         
         try:
             response = requests.get(url, headers=headers, timeout=15)
@@ -247,16 +268,28 @@ def buscar_midia_pexels(palavras_chave, tipo='video', quantidade=1):
                 data = response.json()
                 fotos = data.get('photos', [])
                 
-                for foto in fotos[:quantidade - len(midias)]:
+                # EMBARALHAR fotos
+                random.shuffle(fotos)
+                
+                for foto in fotos[:quantidade - len(midias) + 5]:  # Pegar extras
                     midias.append((foto['src']['large2x'], 'foto'))
+                
+                print(f"   ✓ Adicionou {len(midias) - len([m for m in midias if m[1] == 'video'])} fotos")
+                
         except Exception as e:
-            print(f"⚠️ Erro ao buscar fotos: {e}")
+            print(f"   ⚠️ Erro ao buscar fotos: {e}")
     
-    if not midias:
-        print("⚠️ Usando busca genérica...")
-        midias = [('https://images.pexels.com/photos/531880/pexels-photo-531880.jpeg', 'foto')]
+    # Garantir quantidade mínima
+    if len(midias) < quantidade:
+        print(f"   ⚠️ Só encontrou {len(midias)}, tentando busca genérica...")
+        midias_extras = buscar_midia_pexels(['beautiful nature'], tipo, quantidade - len(midias))
+        midias.extend(midias_extras)
     
-    return midias
+    # EMBARALHAR resultado final
+    random.shuffle(midias)
+    
+    print(f"   ✅ Total: {len(midias)} mídias")
+    return midias[:quantidade]  # Retornar exatamente a quantidade pedida
 
 def baixar_midia(url, filename):
     """Baixa mídia"""
@@ -274,6 +307,16 @@ def baixar_midia(url, filename):
 def criar_video_short(audio_path, midias, output_file, duracao):
     """Cria short vertical (9:16) - 1080x1920"""
     clips = []
+
+    print(f"📹 Processando {len(midias)} mídias para {duracao:.1f}s")
+    
+    # Se tiver poucas mídias, duplicar
+    if len(midias) < 4:
+        print("⚠️ Poucas mídias, duplicando...")
+        midias = midias * 3  # Triplicar
+    
+    duracao_por_midia = duracao / len(midias)
+    print(f"   Cada mídia: {duracao_por_midia:.1f}s")
     
     for i, (midia_url, midia_tipo) in enumerate(midias[:5]):
         if not midia_url:
@@ -530,10 +573,16 @@ def main():
     print("🖼️ Buscando mídias...")
     palavras = config.get('palavras_chave_imagens', [tema.split()[0]])
     
-    quantidade = 3 if VIDEO_TYPE == 'short' else max(40, int(duracao / 15))
+    quantidade = 6 if VIDEO_TYPE == 'short' else max(50, int(duracao / 12))
     
     midias = buscar_midia_pexels(palavras, tipo='video', quantidade=quantidade)
     print(f"✅ {len(midias)} mídias encontradas")
+
+    # VERIFICAR se tem mídias suficientes
+if len(midias) < 3:
+    print("⚠️ POUCAS MÍDIAS! Buscando mais...")
+    midias_extras = buscar_midia_pexels(['nature landscape'], tipo='foto', quantidade=5)
+    midias.extend(midias_extras)
     
     print(f"🎥 Montando {tipo_nome}...")
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
