@@ -1,4 +1,6 @@
 edge-tts==6.1.9
+aiohttp==3.9.1
+certifi==2023.11.17
 gTTS==2.5.0
 feedparser==6.0.10
 imageio==2.25.1
