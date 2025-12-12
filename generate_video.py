@@ -28,7 +28,7 @@ YOUTUBE_CREDENTIALS = os.environ.get('YOUTUBE_CREDENTIALS')
 
 # Configurar Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.0-pro')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 # Carregar configurações
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
