@@ -1,0 +1,61 @@
+name: Gerar e Publicar Vídeo
+
+on:
+  schedule:
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+jobs:
+  gerar-video:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Instalar FFmpeg e ImageMagick
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg imagemagick
+    
+    - name: Instalar dependências Python
+      run: |
+        pip install --upgrade pip
+        pip install gTTS
+        pip install imageio==2.25.1
+        pip install imageio-ffmpeg
+        pip install moviepy==1.0.3
+        pip install google-generativeai
+        pip install google-api-python-client
+        pip install google-auth
+        pip install requests
+        pip install pillow==9.5.0
+    
+    - name: Gerar vídeo
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+        YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+      run: python generate_video.py
+    
+    - name: Commit logs atualizados
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add videos_gerados.json
+        git diff --quiet && git diff --staged --quiet || git commit -m "🎬 Novo vídeo gerado - $(date +'%Y-%m-%d')"
+        git push
+    
+    - name: Upload vídeo como artefato
+      uses: actions/upload-artifact@v4
+      with:
+        name: video-${{ github.run_number }}
+        path: videos/*.mp4
+        retention-days: 7
