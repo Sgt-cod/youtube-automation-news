@@ -142,7 +142,7 @@ def buscar_imagens_bing(termos, quantidade=10):
     termo = ' '.join(termos[:3]) if isinstance(termos, list) else termos
     url = f'https://www.bing.com/images/search?q={quote(termo)}&first=1'
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    imagens = []
+    midias = []
     try:
         response = requests.get(url, headers=headers, timeout=15)
         urls = re.findall(r'"murl":"(.*?)"', response.text)
@@ -150,17 +150,17 @@ def buscar_imagens_bing(termos, quantidade=10):
             try:
                 img_response = requests.get(url_img, timeout=10, headers=headers)
                 if img_response.status_code == 200:
-                    temp_file = f'{ASSETS_DIR}/bing_{len(imagens)}.jpg'
+                    temp_file = f'{ASSETS_DIR}/bing_{len(midias)}.jpg'
                     with open(temp_file, 'wb') as f:
                         f.write(img_response.content)
-                    imagens.append((temp_file, 'foto_local'))
-                    if len(imagens) >= quantidade:
+                    midias.append((temp_file, 'foto_local'))
+                    if len(midias) >= quantidade:
                         break
             except:
                 continue
     except Exception as e:
         print(f"⚠️ Bing: {e}")
-    return imagens
+    return midias
 
 def buscar_midia_pexels(keywords, tipo='video', quantidade=1):
     headers = {'Authorization': PEXELS_API_KEY}
