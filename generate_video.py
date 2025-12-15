@@ -634,150 +634,155 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags):
 def main():
     print(f"{'📱' if VIDEO_TYPE == 'short' else '🎬'} Iniciando...")
     os.makedirs(VIDEOS_DIR, exist_ok=True)
-os.makedirs(ASSETS_DIR, exist_ok=True)
+    os.makedirs(ASSETS_DIR, exist_ok=True)
 
-# Buscar notícia dos feeds RSS
-noticia = buscar_noticias()
+    # Buscar notícia dos feeds RSS
+    noticia = buscar_noticias()
 
-if noticia:
-    titulo_video = noticia['titulo']
-    keywords = titulo_video.split()[:5]
-    print(f"📰 Notícia: {titulo_video}")
-else:
-    # Fallback para temas genéricos se não houver notícias
-    tema = random.choice(config.get('temas', ['política brasileira']))
-    print(f"📝 Tema: {tema}")
-    
-    info = gerar_titulo_especifico(tema)
-    titulo_video = info['titulo']
-    keywords = info['keywords']
+    if noticia:
+        titulo_video = noticia['titulo']
+        keywords = titulo_video.split()[:5]
+        print(f"📰 Notícia: {titulo_video}")
+    else:
+        # Fallback para temas genéricos se não houver notícias
+        tema = random.choice(config.get('temas', ['política brasileira']))
+        print(f"📝 Tema: {tema}")
+        
+        info = gerar_titulo_especifico(tema)
+        titulo_video = info['titulo']
+        keywords = info['keywords']
 
-print(f"🎯 Título: {titulo_video}")
-print(f"🔍 Keywords: {', '.join(keywords)}")
+    print(f"🎯 Título: {titulo_video}")
+    print(f"🔍 Keywords: {', '.join(keywords)}")
 
-# Gerar roteiro
-print("✍️ Gerando roteiro...")
-roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticia)
+    # Gerar roteiro
+    print("✍️ Gerando roteiro...")
+    roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticia)
 
-# Criar áudio
-audio_path = f'{ASSETS_DIR}/audio.mp3'
-criar_audio(roteiro, audio_path)
+    # Criar áudio
+    audio_path = f'{ASSETS_DIR}/audio.mp3'
+    criar_audio(roteiro, audio_path)
 
-audio_clip = AudioFileClip(audio_path)
-duracao = audio_clip.duration
-audio_clip.close()
+    audio_clip = AudioFileClip(audio_path)
+    duracao = audio_clip.duration
+    audio_clip.close()
 
-print(f"⏱️ {duracao:.1f}s")
+    print(f"⏱️ {duracao:.1f}s")
 
-# Detectar se deve usar Bing ou Pexels
-usar_bing = config.get('tipo') == 'noticias' and config.get('fonte_midias') == 'bing'
+    # Detectar se deve usar Bing ou Pexels
+    usar_bing = config.get('tipo') == 'noticias' and config.get('fonte_midias') == 'bing'
 
-if usar_bing:
-    print("🌐 Modo: BING (notícias) - Imagens serão do Bing!")
-else:
-    print("📸 Modo: PEXELS")
-
-# Buscar keywords fixas ou usar as geradas
-if config.get('palavras_chave_fixas'):
-    keywords_busca = config.get('palavras_chave_fixas')
-    print(f"🎯 Keywords fixas: {', '.join(keywords_busca)}")
-else:
-    keywords_busca = keywords
-
-# Analisar roteiro e buscar mídias sincronizadas
-midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao, usar_bing)
-
-# Complementar se houver poucas mídias
-if len(midias_sincronizadas) < 3:
-    print("⚠️ Poucas mídias, complementando...")
-    
     if usar_bing:
-        extras = buscar_imagens_bing(['brasil politica', 'governo'], quantidade=5)
+        print("🌐 Modo: BING (notícias) - Imagens serão do Bing!")
     else:
-        extras = buscar_midia_pexels(['government', 'politics'], tipo='foto', quantidade=5)
-    
-    tempo_restante = duracao - sum([m['duracao'] for m in midias_sincronizadas])
-    duracao_extra = tempo_restante / len(extras) if extras else 0
-    
-    for extra in extras:
-        midias_sincronizadas.append({
-            'midia': extra,
-            'inicio': duracao - tempo_restante,
-            'duracao': duracao_extra
-        })
-        tempo_restante -= duracao_extra
+        print("📸 Modo: PEXELS")
 
-# Montar vídeo sincronizado
-print("🎥 Montando vídeo sincronizado...")
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
+    # Buscar keywords fixas ou usar as geradas
+    if config.get('palavras_chave_fixas'):
+        keywords_busca = config.get('palavras_chave_fixas')
+        print(f"🎯 Keywords fixas: {', '.join(keywords_busca)}")
+    else:
+        keywords_busca = keywords
 
-# CORREÇÃO: Usar funções específicas para notícias com Bing
-if usar_bing:
+    # Analisar roteiro e buscar mídias sincronizadas
+    midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao, usar_bing)
+
+    # Complementar se houver poucas mídias
+    if len(midias_sincronizadas) < 3:
+        print("⚠️ Poucas mídias, complementando...")
+        
+        if usar_bing:
+            extras = buscar_imagens_bing(['brasil politica', 'governo'], quantidade=5)
+        else:
+            extras = buscar_midia_pexels(['government', 'politics'], tipo='foto', quantidade=5)
+        
+        tempo_restante = duracao - sum([m['duracao'] for m in midias_sincronizadas])
+        duracao_extra = tempo_restante / len(extras) if extras else 0
+        
+        for extra in extras:
+            midias_sincronizadas.append({
+                'midia': extra,
+                'inicio': duracao - tempo_restante,
+                'duracao': duracao_extra
+            })
+            tempo_restante -= duracao_extra
+
+    # Montar vídeo sincronizado
+    print("🎥 Montando vídeo sincronizado...")
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
+
+    # CORREÇÃO: Usar funções específicas para notícias com Bing
+    if usar_bing:
+        if VIDEO_TYPE == 'short':
+            resultado = criar_video_short_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
+        else:
+            resultado = criar_video_long_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
+    else:
+        # Se não usar Bing, usar funções genéricas (fallback)
+        print("⚠️ Usando Pexels - considere ativar Bing para melhores resultados políticos")
+        if VIDEO_TYPE == 'short':
+            resultado = criar_video_short_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
+        else:
+            resultado = criar_video_long_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
+
+    if not resultado:
+        print("❌ Erro ao criar vídeo")
+        return
+
+    # Preparar metadados para upload
+    titulo = titulo_video[:60] if len(titulo_video) <= 60 else titulo_video[:57] + '...'
+
     if VIDEO_TYPE == 'short':
-        resultado = criar_video_short_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
-    else:
-        resultado = criar_video_long_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
-else:
-    # Se não usar Bing, usar funções genéricas (fallback)
-    print("⚠️ Usando Pexels - considere ativar Bing para melhores resultados políticos")
+        titulo += ' #shorts'
+
+    descricao = roteiro[:300] + '...\n\n🔔 Inscreva-se!\n📰 Notícias Políticas do Brasil\n#' + ('shorts' if VIDEO_TYPE == 'short' else 'noticias')
+
+    tags = ['noticias', 'informacao', 'politica', 'brasil']
     if VIDEO_TYPE == 'short':
-        resultado = criar_video_short_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
-    else:
-        resultado = criar_video_long_sincronizado_noticias(audio_path, midias_sincronizadas, video_path, duracao)
+        tags.append('shorts')
 
-if not resultado:
-    print("❌ Erro ao criar vídeo")
-    return
+    # Upload para YouTube
+    print("📤 Upload...")
+    try:
+        video_id = fazer_upload_youtube(video_path, titulo, descricao, tags)
+        
+        url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
+        
+        # Salvar log
+        log_entry = {
+            'data': datetime.now().isoformat(),
+            'tipo': VIDEO_TYPE,
+            'tema': titulo_video,
+            'titulo': titulo,
+            'duracao': duracao,
+            'video_id': video_id,
+            'url': url
+        }
+        
+        log_file = 'videos_gerados.json'
+        logs = []
+        
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
+                logs = json.load(f)
+        
+        logs.append(log_entry)
+        
+        with open(log_file, 'w', encoding='utf-8') as f:
+            json.dump(logs, f, indent=2, ensure_ascii=False)
+        
+        print(f"✅ Publicado!\n🔗 {url}")
+        
+        # Limpar assets
+        for file in os.listdir(ASSETS_DIR):
+            try:
+                os.remove(os.path.join(ASSETS_DIR, file))
+            except:
+                pass
+    except Exception as e:
+        print(f"❌ Erro no processo: {e}")
 
-# Preparar metadados para upload
-titulo = titulo_video[:60] if len(titulo_video) <= 60 else titulo_video[:57] + '...'
-
-if VIDEO_TYPE == 'short':
-    titulo += ' #shorts'
-
-descricao = roteiro[:300] + '...\n\n🔔 Inscreva-se!\n📰 Notícias Políticas do Brasil\n#' + ('shorts' if VIDEO_TYPE == 'short' else 'noticias')
-
-tags = ['noticias', 'informacao', 'politica', 'brasil']
-if VIDEO_TYPE == 'short':
-    tags.append('shorts')
-
-# Upload para YouTube
-print("📤 Upload...")
-try:
-    video_id = fazer_upload_youtube(video_path, titulo, descricao, tags)
-    
-    url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
-    
-    # Salvar log
-    log_entry = {
-        'data': datetime.now().isoformat(),
-        'tipo': VIDEO_TYPE,
-        'tema': titulo_video,
-        'titulo': titulo,
-        'duracao': duracao,
-        'video_id': video_id,
-        'url': url
-    }
-    
-    log_file = 'videos_gerados.json'
-    logs = []
-    
-    if os.path.exists(log_file):
-        with open(log_file, 'r', encoding='utf-8') as f:
-            logs = json.load(f)
-    
-    logs.append(log_entry)
-    
-    with open(log_file, 'w', encoding='utf-8') as f:
-        json.dump(logs, f, indent=2, ensure_ascii=False)
-    
-    print(f"✅ Publicado!\n🔗 {url}")
-    for file in os.listdir(ASSETS_DIR):
-        try:
-            os.remove(os.path.join(ASSETS_DIR, file))
-        except:
-            pass
-
+# CORREÇÃO: Adicionar esta linha fora da função main()
 if __name__ == '__main__':
     main()
