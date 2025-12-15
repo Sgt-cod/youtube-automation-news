@@ -728,7 +728,7 @@ else:
 
 if not resultado:
     print("❌ Erro ao criar vídeo")
-    return None
+    return
 
 # Preparar metadados para upload
 titulo = titulo_video[:60] if len(titulo_video) <= 60 else titulo_video[:57] + '...'
@@ -773,8 +773,11 @@ try:
         json.dump(logs, f, indent=2, ensure_ascii=False)
     
     print(f"✅ Publicado!\n🔗 {url}")
-except Exception as e:
-    print(f"❌ Erro no upload: {e}")
-    return
+    for file in os.listdir(ASSETS_DIR):
+        try:
+            os.remove(os.path.join(ASSETS_DIR, file))
+        except:
+            pass
 
-# Limpar assets
+if __name__ == '__main__':
+    main()
