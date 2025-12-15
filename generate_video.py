@@ -266,40 +266,42 @@ def baixar_midia(url, filename):
         return None
 
 def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file, duracao_total):
-    print(f"📹 Criando short sincronizado com {len(midias_sincronizadas)} mídias")
+    """VERSÃO CORRIGIDA para usar imagens do BING no canal de notícias"""
+    print(f"📹 Criando short de notícias com {len(midias_sincronizadas)} mídias do BING")
+    
     clips = []
+    tempo_coberto = 0
+    
     for i, item in enumerate(midias_sincronizadas):
         midia_info, midia_tipo = item['midia']
         inicio = item['inicio']
         duracao_clip = item['duracao']
+        
         if not midia_info:
             continue
+        
         try:
-            if midia_tipo == 'foto_local':
+            # CORREÇÃO: Processar corretamente imagens locais do Bing
+            if midia_tipo == 'foto_local':  # Imagens baixadas do Bing
+                if not os.path.exists(midia_info):
+                    print(f"⚠️ Arquivo não encontrado: {midia_info}")
+                    continue
+                
                 clip = ImageClip(midia_info).set_duration(duracao_clip)
                 clip = clip.resize(height=1920)
+                
                 if clip.w > 1080:
                     clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
+                
+                # Ken Burns effect
                 clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_clip))
                 clip = clip.set_start(inicio)
                 clips.append(clip)
-            elif midia_tipo == 'video':
-                video_temp = f'{ASSETS_DIR}/v_{i}.mp4'
-                if baixar_midia(midia_info, video_temp):
-                    vclip = VideoFileClip(video_temp, audio=False)
-                    ratio = 9/16
-                    if vclip.w / vclip.h > ratio:
-                        new_w = int(vclip.h * ratio)
-                        vclip = vclip.crop(x_center=vclip.w/2, width=new_w, height=vclip.h)
-                    else:
-                        new_h = int(vclip.w / ratio)
-                        vclip = vclip.crop(y_center=vclip.h/2, width=vclip.w, height=new_h)
-                    vclip = vclip.resize((1080, 1920))
-                    vclip = vclip.set_duration(min(duracao_clip, vclip.duration))
-                    vclip = vclip.set_start(inicio)
-                    clips.append(vclip)
-            else:
-                foto_temp = f'{ASSETS_DIR}/f_{i}.jpg'
+                tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
+                print(f"✅ Imagem Bing adicionada: seg {i+1}")
+            
+            elif midia_tipo == 'foto':  # Fotos do Pexels (fallback)
+                foto_temp = f'{ASSETS_DIR}/pexels_{i}.jpg'
                 if baixar_midia(midia_info, foto_temp):
                     clip = ImageClip(foto_temp).set_duration(duracao_clip)
                     clip = clip.resize(height=1920)
@@ -308,49 +310,110 @@ def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file
                     clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_clip))
                     clip = clip.set_start(inicio)
                     clips.append(clip)
+                    tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
+        
         except Exception as e:
             print(f"⚠️ Erro mídia {i}: {e}")
+    
+    # Preencher lacunas com mais imagens do Bing
+    if tempo_coberto < duracao_total:
+        print(f"⚠️ Preenchendo lacuna de {duracao_total - tempo_coberto:.1f}s com imagens políticas")
+        
+        # Buscar mais imagens políticas do Bing
+        keywords_politicas = ['brasil politica', 'congresso nacional', 'planalto']
+        midias_extras = []
+        
+        for keyword in keywords_politicas:
+            imgs = buscar_imagens_bing([keyword], quantidade=2)
+            midias_extras.extend(imgs)
+            if len(midias_extras) >= 5:
+                break
+        
+        if not midias_extras:
+            # Fallback para Pexels
+            midias_extras = buscar_midia_pexels(['government', 'politics'], tipo='foto', quantidade=3)
+        
+        duracao_restante = duracao_total - tempo_coberto
+        duracao_por_extra = duracao_restante / len(midias_extras) if midias_extras else duracao_restante
+        
+        for idx, (midia_info, midia_tipo) in enumerate(midias_extras):
+            try:
+                if midia_tipo == 'foto_local':
+                    if os.path.exists(midia_info):
+                        clip = ImageClip(midia_info).set_duration(duracao_por_extra)
+                        clip = clip.resize(height=1920)
+                        if clip.w > 1080:
+                            clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
+                        clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_por_extra))
+                        clip = clip.set_start(tempo_coberto)
+                        clips.append(clip)
+                        tempo_coberto += duracao_por_extra
+                elif midia_tipo == 'foto':
+                    foto_temp = f'{ASSETS_DIR}/extra_{idx}.jpg'
+                    if baixar_midia(midia_info, foto_temp):
+                        clip = ImageClip(foto_temp).set_duration(duracao_por_extra)
+                        clip = clip.resize(height=1920)
+                        if clip.w > 1080:
+                            clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
+                        clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_por_extra))
+                        clip = clip.set_start(tempo_coberto)
+                        clips.append(clip)
+                        tempo_coberto += duracao_por_extra
+            except Exception as e:
+                print(f"⚠️ Erro extra {idx}: {e}")
+                continue
+    
     if not clips:
+        print("❌ Nenhum clip foi criado!")
         return None
+    
+    print(f"✅ Total de {len(clips)} clips criados, cobrindo {tempo_coberto:.1f}s de {duracao_total:.1f}s")
+    
     video = CompositeVideoClip(clips, size=(1080, 1920))
     video = video.set_duration(duracao_total)
+    
     audio = AudioFileClip(audio_path)
     video = video.set_audio(audio)
+    
     video.write_videofile(output_file, fps=30, codec='libx264', audio_codec='aac', preset='medium', bitrate='8000k')
+    
     return output_file
 
+
 def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file, duracao_total):
-    print(f"📹 Criando long sincronizado com {len(midias_sincronizadas)} mídias")
+    """VERSÃO CORRIGIDA para vídeos longos de notícias com imagens do BING"""
+    print(f"📹 Criando long de notícias com {len(midias_sincronizadas)} mídias do BING")
+    
     clips = []
+    tempo_coberto = 0
+    
     for i, item in enumerate(midias_sincronizadas):
         midia_info, midia_tipo = item['midia']
         inicio = item['inicio']
         duracao_clip = item['duracao']
+        
         if not midia_info:
             continue
+        
         try:
-            if midia_tipo == 'foto_local':
+            if midia_tipo == 'foto_local':  # Imagens do Bing
+                if not os.path.exists(midia_info):
+                    continue
+                
                 clip = ImageClip(midia_info).set_duration(duracao_clip)
                 clip = clip.resize(height=1080)
+                
                 if clip.w < 1920:
                     clip = clip.resize(width=1920)
+                
                 clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
                 clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_clip))
                 clip = clip.set_start(inicio)
                 clips.append(clip)
-            elif midia_tipo == 'video':
-                video_temp = f'{ASSETS_DIR}/v_{i}.mp4'
-                if baixar_midia(midia_info, video_temp):
-                    vclip = VideoFileClip(video_temp, audio=False)
-                    vclip = vclip.resize(height=1080)
-                    if vclip.w < 1920:
-                        vclip = vclip.resize(width=1920)
-                    vclip = vclip.crop(x_center=vclip.w/2, y_center=vclip.h/2, width=1920, height=1080)
-                    vclip = vclip.set_duration(min(duracao_clip, vclip.duration))
-                    vclip = vclip.set_start(inicio)
-                    clips.append(vclip)
-            else:
-                foto_temp = f'{ASSETS_DIR}/f_{i}.jpg'
+                tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
+            
+            elif midia_tipo == 'foto':  # Pexels fallback
+                foto_temp = f'{ASSETS_DIR}/pexels_{i}.jpg'
                 if baixar_midia(midia_info, foto_temp):
                     clip = ImageClip(foto_temp).set_duration(duracao_clip)
                     clip = clip.resize(height=1080)
@@ -360,15 +423,52 @@ def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file,
                     clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_clip))
                     clip = clip.set_start(inicio)
                     clips.append(clip)
+                    tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
+        
         except Exception as e:
             print(f"⚠️ Erro mídia {i}: {e}")
+    
+    # Preencher lacunas
+    if tempo_coberto < duracao_total:
+        print(f"⚠️ Preenchendo lacuna de {duracao_total - tempo_coberto:.1f}s")
+        keywords_politicas = ['brasil governo', 'congresso', 'politica brasileira']
+        midias_extras = []
+        
+        for keyword in keywords_politicas:
+            imgs = buscar_imagens_bing([keyword], quantidade=3)
+            midias_extras.extend(imgs)
+            if len(midias_extras) >= 5:
+                break
+        
+        duracao_restante = duracao_total - tempo_coberto
+        duracao_por_extra = duracao_restante / len(midias_extras) if midias_extras else duracao_restante
+        
+        for idx, (midia_info, midia_tipo) in enumerate(midias_extras):
+            try:
+                if midia_tipo == 'foto_local' and os.path.exists(midia_info):
+                    clip = ImageClip(midia_info).set_duration(duracao_por_extra)
+                    clip = clip.resize(height=1080)
+                    if clip.w < 1920:
+                        clip = clip.resize(width=1920)
+                    clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
+                    clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_por_extra))
+                    clip = clip.set_start(tempo_coberto)
+                    clips.append(clip)
+                    tempo_coberto += duracao_por_extra
+            except:
+                continue
+    
     if not clips:
         return None
+    
     video = CompositeVideoClip(clips, size=(1920, 1080))
     video = video.set_duration(duracao_total)
+    
     audio = AudioFileClip(audio_path)
     video = video.set_audio(audio)
+    
     video.write_videofile(output_file, fps=24, codec='libx264', audio_codec='aac', preset='medium', bitrate='5000k')
+    
     return output_file
 
 def fazer_upload_youtube(video_path, titulo, descricao, tags):
