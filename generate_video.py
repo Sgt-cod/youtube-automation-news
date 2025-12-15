@@ -728,7 +728,7 @@ else:
 
 if not resultado:
     print("❌ Erro ao criar vídeo")
-    return
+    return None
 
 # Preparar metadados para upload
 titulo = titulo_video[:60] if len(titulo_video) <= 60 else titulo_video[:57] + '...'
