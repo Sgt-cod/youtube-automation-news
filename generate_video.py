@@ -633,17 +633,16 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags):
 
 def main():
     print(f"{'📱' if VIDEO_TYPE == 'short' else '🎬'} Iniciando...")
-    
     os.makedirs(VIDEOS_DIR, exist_ok=True)
-    os.makedirs(ASSETS_DIR, exist_ok=True)
+os.makedirs(ASSETS_DIR, exist_ok=True)
 
 # Buscar notícia dos feeds RSS
 noticia = buscar_noticias()
 
-    if noticia:
-        titulo_video = noticia['titulo']
-        keywords = titulo_video.split()[:5]
-        print(f"📰 Notícia: {titulo_video}")
+if noticia:
+    titulo_video = noticia['titulo']
+    keywords = titulo_video.split()[:5]
+    print(f"📰 Notícia: {titulo_video}")
 else:
     # Fallback para temas genéricos se não houver notícias
     tema = random.choice(config.get('temas', ['política brasileira']))
@@ -772,14 +771,10 @@ try:
     
     with open(log_file, 'w', encoding='utf-8') as f:
         json.dump(logs, f, indent=2, ensure_ascii=False)
-      
     
     print(f"✅ Publicado!\n🔗 {url}")
-    for file in os.listdir(ASSETS_DIR):
-        try:
-            os.remove(os.path.join(ASSETS_DIR, file))
-        except:
-            pass
+except Exception as e:
+    print(f"❌ Erro no upload: {e}")
+    return
 
-if __name__ == '__main__':
-    main()
+# Limpar assets
