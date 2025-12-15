@@ -273,35 +273,99 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio, usar_bing=False):
     return midias_sincronizadas
 
 def buscar_imagens_bing(termos, quantidade=10):
-    """Busca imagens no Bing e baixa localmente"""
+    """Busca imagens no Bing e baixa localmente - VERSÃO MELHORADA"""
     from urllib.parse import quote
+    import time
     
     termo = ' '.join(termos[:3]) if isinstance(termos, list) else str(termos)
-    url = f'https://www.bing.com/images/search?q={quote(termo)}&first=1'
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    termo_encoded = quote(termo)
+    
+    # Headers mais completos para evitar bloqueio
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
     
     midias = []
     
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        urls = re.findall(r'"murl":"(.*?)"', response.text)
+        # Buscar na página do Bing
+        url = f'https://www.bing.com/images/search?q={termo_encoded}&first=1&qft=+filterui:license-L2_L3_L4'
+        print(f"   🔍 Buscando Bing: {termo}")
         
-        for url_img in urls[:quantidade * 2]:
-            try:
-                img_response = requests.get(url_img, timeout=10, headers=headers)
-                if img_response.status_code == 200:
-                    temp_file = f'{ASSETS_DIR}/bing_{len(midias)}.jpg'
-                    with open(temp_file, 'wb') as f:
-                        f.write(img_response.content)
-                    midias.append((temp_file, 'foto_local'))
-                    if len(midias) >= quantidade:
-                        break
-            except:
+        response = requests.get(url, headers=headers, timeout=20)
+        
+        if response.status_code != 200:
+            print(f"   ⚠️ Bing retornou status {response.status_code}")
+            return midias
+        
+        # Extrair URLs das imagens (padrão atualizado)
+        urls = re.findall(r'"murl":"(https?://[^"]+)"', response.text)
+        
+        if not urls:
+            # Tentar padrão alternativo
+            urls = re.findall(r'"contentUrl":"(https?://[^"]+)"', response.text)
+        
+        print(f"   📸 {len(urls)} URLs encontradas")
+        
+        # Baixar imagens com retry
+        for idx, url_img in enumerate(urls[:quantidade * 3]):
+            if len(midias) >= quantidade:
+                break
+            
+            # Ignorar URLs problemáticas
+            if any(x in url_img.lower() for x in ['.gif', '.svg', 'icon', 'logo', 'thumbnail']):
                 continue
+            
+            try:
+                # Tentar baixar com timeout curto
+                img_response = requests.get(
+                    url_img, 
+                    timeout=8, 
+                    headers=headers,
+                    stream=True,
+                    allow_redirects=True
+                )
+                
+                if img_response.status_code == 200:
+                    # Verificar se é realmente uma imagem
+                    content_type = img_response.headers.get('content-type', '')
+                    if 'image' not in content_type:
+                        continue
+                    
+                    # Salvar imagem
+                    temp_file = f'{ASSETS_DIR}/bing_{len(midias)}_{idx}.jpg'
+                    
+                    with open(temp_file, 'wb') as f:
+                        for chunk in img_response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    
+                    # Verificar tamanho mínimo
+                    if os.path.getsize(temp_file) > 10000:  # Mínimo 10KB
+                        midias.append((temp_file, 'foto_local'))
+                        print(f"   ✅ Imagem {len(midias)}/{quantidade} baixada")
+                    else:
+                        os.remove(temp_file)
+                        
+            except requests.exceptions.Timeout:
+                print(f"   ⏱️ Timeout na imagem {idx}")
+                continue
+            except Exception as e:
+                print(f"   ⚠️ Erro imagem {idx}: {str(e)[:50]}")
+                continue
+            
+            # Pequeno delay para não sobrecarregar
+            time.sleep(0.3)
+        
     except Exception as e:
-        print(f"⚠️ Bing: {e}")
+        print(f"   ❌ Erro Bing: {e}")
     
-    print(f"   Bing: {len(midias)} imagens")
+    print(f"   ✅ Bing: {len(midias)} imagens válidas")
     return midias
 
 def buscar_midia_pexels(keywords, tipo='video', quantidade=1):
