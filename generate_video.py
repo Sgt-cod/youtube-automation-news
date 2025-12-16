@@ -220,11 +220,10 @@ Exemplo: politics, congress, brazil, government, president"""
         palavras = texto.lower().split()
         return [p for p in palavras if len(p) > 4][:3]
 
-def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio, usar_bing=False):
-    """Analisa roteiro, divide em segmentos e busca mídias sincronizadas"""
+def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
+    """Analisa roteiro, divide em segmentos e busca mídias com sistema híbrido"""
     print("📋 Analisando roteiro para sincronização...")
     
-    # Dividir em segmentos por pontuação
     segmentos = re.split(r'[.!?]\s+', roteiro)
     segmentos = [s.strip() for s in segmentos if len(s.strip()) > 20]
     
@@ -253,12 +252,11 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio, usar_bing=False):
     midias_sincronizadas = []
     
     for i, seg in enumerate(segmentos_com_tempo):
-        print(f"🔍 Seg {i+1}: '{seg['texto']}'... → {seg['keywords']}")
+        print(f"\n🔍 Segmento {i+1}/{len(segmentos_com_tempo)}: '{seg['texto']}'...")
+        print(f"   Keywords: {seg['keywords']}")
         
-        if usar_bing:
-            midia = buscar_imagens_bing(seg['keywords'], quantidade=1)
-        else:
-            midia = buscar_midia_pexels(seg['keywords'], tipo='video', quantidade=1)
+        # USAR A FUNÇÃO HÍBRIDA
+        midia = buscar_midias_final(seg['keywords'], quantidade=1)
         
         if midia and len(midia) > 0:
             midias_sincronizadas.append({
@@ -266,64 +264,176 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio, usar_bing=False):
                 'inicio': seg['inicio'],
                 'duracao': seg['duracao']
             })
+            print(f"   ✅ Mídia adicionada para segmento {i+1}")
         else:
-            print(f"   ⚠️ Sem mídia para seg {i+1}")
+            print(f"   ❌ Nenhuma mídia para segmento {i+1}")
     
-    print(f"✅ {len(midias_sincronizadas)} mídias sincronizadas")
+    print(f"\n✅ Total: {len(midias_sincronizadas)}/{len(segmentos_com_tempo)} mídias sincronizadas")
     return midias_sincronizadas
 
-def buscar_imagens_bing(termos, quantidade=10):
-    """Busca imagens no Bing e baixa localmente - VERSÃO MELHORADA"""
+def buscar_imagens_local(keywords, quantidade=1):
+    """
+    PRIORIDADE 1: Busca imagens no banco local
+    Estrutura de pastas:
+    assets/
+    ├── politicos/
+    │   ├── lula_1.jpg, lula_2.jpg
+    │   ├── bolsonaro_1.jpg
+    │   ├── moraes_1.jpg
+    │   └── ...
+    ├── instituicoes/
+    │   ├── planalto_1.jpg
+    │   ├── congresso_1.jpg
+    │   └── ...
+    └── genericas/
+        ├── bandeira_brasil_1.jpg
+        └── ...
+    """
+    
+    # Mapeamento de keywords para pastas
+    mapa_politicos = {
+        'lula': 'politicos/lula',
+        'bolsonaro': 'politicos/bolsonaro',
+        'moraes': 'politicos/moraes',
+        'alexandre': 'politicos/moraes',
+        'pacheco': 'politicos/pacheco',
+        'rodrigo pacheco': 'politicos/pacheco',
+        'arthur lira': 'politicos/lira',
+        'lira': 'politicos/lira',
+        'ramagem': 'politicos/ramagem',
+        'alexandre ramagem': 'politicos/ramagem',
+        'tarcisio': 'politicos/tarcisio',
+        'tarcísio': 'politicos/tarcisio',
+        'haddad': 'politicos/haddad',
+        'fernando haddad': 'politicos/haddad',
+        'dilma': 'politicos/dilma',
+        'temer': 'politicos/temer',
+        'ciro': 'politicos/ciro',
+        'dino': 'politicos/dino',
+        'flavio dino': 'politicos/dino',
+    }
+    
+    mapa_instituicoes = {
+        'congresso': 'instituicoes/congresso',
+        'congresso nacional': 'instituicoes/congresso',
+        'planalto': 'instituicoes/planalto',
+        'palacio': 'instituicoes/planalto',
+        'palácio': 'instituicoes/planalto',
+        'stf': 'instituicoes/stf',
+        'supremo': 'instituicoes/stf',
+        'supremo tribunal': 'instituicoes/stf',
+        'senado': 'instituicoes/senado',
+        'senado federal': 'instituicoes/senado',
+        'camara': 'instituicoes/camara',
+        'câmara': 'instituicoes/camara',
+        'camara dos deputados': 'instituicoes/camara',
+        'brasilia': 'instituicoes/brasilia',
+        'brasília': 'instituicoes/brasilia',
+        'governo': 'instituicoes/governo',
+        'governo federal': 'instituicoes/governo',
+    }
+    
+    midias = []
+    keywords_lower = [k.lower() for k in keywords]
+    keywords_texto = ' '.join(keywords_lower)
+    
+    # Buscar correspondências
+    pasta_encontrada = None
+    
+    # Checar políticos
+    for termo, pasta in mapa_politicos.items():
+        if termo in keywords_texto:
+            pasta_encontrada = pasta
+            break
+    
+    # Checar instituições
+    if not pasta_encontrada:
+        for termo, pasta in mapa_instituicoes.items():
+            if termo in keywords_texto:
+                pasta_encontrada = pasta
+                break
+    
+    # Se não encontrou, usar genéricas
+    if not pasta_encontrada:
+        pasta_encontrada = 'genericas'
+    
+    # Buscar arquivos na pasta
+    pasta_completa = f'{ASSETS_DIR}/{pasta_encontrada}'
+    
+    try:
+        if os.path.exists(pasta_completa):
+            arquivos = [f for f in os.listdir(pasta_completa) 
+                       if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            
+            if arquivos:
+                random.shuffle(arquivos)
+                
+                for arquivo in arquivos[:quantidade]:
+                    caminho_completo = os.path.join(pasta_completa, arquivo)
+                    if os.path.exists(caminho_completo):
+                        midias.append((caminho_completo, 'foto_local'))
+                
+                if midias:
+                    print(f"   ✅ Banco LOCAL: {len(midias)} imagem(ns) de '{pasta_encontrada}'")
+                    return midias
+    except Exception as e:
+        print(f"   ⚠️ Erro banco local: {e}")
+    
+    return midias
+
+
+def buscar_imagens_google(termos, quantidade=10):
+    """
+    PRIORIDADE 2: Busca imagens no Google Images
+    Melhor para conteúdo político brasileiro
+    """
     from urllib.parse import quote
-    import time
     
     termo = ' '.join(termos[:3]) if isinstance(termos, list) else str(termos)
-    termo_encoded = quote(termo)
+    termo_encoded = quote(termo + ' brasil')
     
-    # Headers mais completos para evitar bloqueio
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8',
+        'Referer': 'https://www.google.com/',
+        'DNT': '1'
     }
     
     midias = []
     
     try:
-        # Buscar na página do Bing
-        url = f'https://www.bing.com/images/search?q={termo_encoded}&first=1&qft=+filterui:license-L2_L3_L4'
-        print(f"   🔍 Buscando Bing: {termo}")
+        url = f'https://www.google.com/search?q={termo_encoded}&tbm=isch&tbs=sur:fmc'
+        print(f"   🔍 Buscando GOOGLE: {termo}")
         
         response = requests.get(url, headers=headers, timeout=20)
         
         if response.status_code != 200:
-            print(f"   ⚠️ Bing retornou status {response.status_code}")
+            print(f"   ⚠️ Google retornou status {response.status_code}")
             return midias
         
-        # Extrair URLs das imagens (padrão atualizado)
-        urls = re.findall(r'"murl":"(https?://[^"]+)"', response.text)
+        # Extrair URLs (padrões do Google)
+        urls = re.findall(r'"ou":"(https?://[^"]+)"', response.text)
         
         if not urls:
-            # Tentar padrão alternativo
-            urls = re.findall(r'"contentUrl":"(https?://[^"]+)"', response.text)
+            urls = re.findall(r'src="(https?://[^"]+\.(?:jpg|jpeg|png))"', response.text)
+        
+        if not urls:
+            urls = re.findall(r'"(https?://[^"]*\.(?:jpg|jpeg|png)[^"]*)"', response.text)
         
         print(f"   📸 {len(urls)} URLs encontradas")
         
-        # Baixar imagens com retry
+        # Baixar imagens
         for idx, url_img in enumerate(urls[:quantidade * 3]):
             if len(midias) >= quantidade:
                 break
             
-            # Ignorar URLs problemáticas
-            if any(x in url_img.lower() for x in ['.gif', '.svg', 'icon', 'logo', 'thumbnail']):
+            # Filtros de URL
+            skip_terms = ['.gif', '.svg', 'icon', 'logo', 'gstatic', 'ggpht', 'encrypted-tbn']
+            if any(x in url_img.lower() for x in skip_terms):
                 continue
             
             try:
-                # Tentar baixar com timeout curto
                 img_response = requests.get(
                     url_img, 
                     timeout=8, 
@@ -333,43 +443,155 @@ def buscar_imagens_bing(termos, quantidade=10):
                 )
                 
                 if img_response.status_code == 200:
-                    # Verificar se é realmente uma imagem
                     content_type = img_response.headers.get('content-type', '')
-                    if 'image' not in content_type:
+                    if 'image' not in content_type.lower():
                         continue
                     
-                    # Salvar imagem
-                    temp_file = f'{ASSETS_DIR}/bing_{len(midias)}_{idx}.jpg'
+                    temp_file = f'{ASSETS_DIR}/google_{len(midias)}_{idx}.jpg'
                     
                     with open(temp_file, 'wb') as f:
                         for chunk in img_response.iter_content(chunk_size=8192):
-                            f.write(chunk)
+                            if chunk:
+                                f.write(chunk)
                     
-                    # Verificar tamanho mínimo
-                    if os.path.getsize(temp_file) > 10000:  # Mínimo 10KB
-                        midias.append((temp_file, 'foto_local'))
-                        print(f"   ✅ Imagem {len(midias)}/{quantidade} baixada")
+                    # Validar tamanho e dimensões
+                    if os.path.getsize(temp_file) > 15000:  # Mínimo 15KB
+                        try:
+                            img = Image.open(temp_file)
+                            width, height = img.size
+                            img.close()
+                            
+                            # Aceitar apenas imagens com resolução razoável
+                            if width >= 400 and height >= 300:
+                                midias.append((temp_file, 'foto_local'))
+                                print(f"   ✅ GOOGLE: Imagem {len(midias)}/{quantidade} ({width}x{height})")
+                            else:
+                                os.remove(temp_file)
+                        except Exception as e:
+                            os.remove(temp_file)
                     else:
                         os.remove(temp_file)
                         
             except requests.exceptions.Timeout:
-                print(f"   ⏱️ Timeout na imagem {idx}")
                 continue
-            except Exception as e:
-                print(f"   ⚠️ Erro imagem {idx}: {str(e)[:50]}")
+            except Exception:
                 continue
             
-            # Pequeno delay para não sobrecarregar
+            # Delay para não ser bloqueado
             time.sleep(0.3)
         
     except Exception as e:
-        print(f"   ❌ Erro Bing: {e}")
+        print(f"   ❌ Erro GOOGLE: {e}")
     
-    print(f"   ✅ Bing: {len(midias)} imagens válidas")
+    if midias:
+        print(f"   ✅ GOOGLE: {len(midias)} imagens válidas")
+    
     return midias
 
-def buscar_midia_pexels(keywords, tipo='video', quantidade=1):
-    """Busca vídeos ou fotos no Pexels"""
+
+def buscar_imagens_wikimedia(termos, quantidade=10):
+    """
+    PRIORIDADE 3: Busca na Wikimedia Commons
+    Imagens livres e legais, boa fonte para políticos
+    """
+    
+    termo = ' '.join(termos[:3]) if isinstance(termos, list) else str(termos)
+    
+    midias = []
+    
+    try:
+        print(f"   📚 Buscando WIKIMEDIA: {termo}")
+        
+        url = 'https://commons.wikimedia.org/w/api.php'
+        params = {
+            'action': 'query',
+            'format': 'json',
+            'list': 'search',
+            'srsearch': termo + ' brazil OR brasil',
+            'srnamespace': 6,  # Namespace de arquivos
+            'srlimit': quantidade * 2
+        }
+        
+        response = requests.get(url, params=params, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get('query', {}).get('search', [])
+            
+            print(f"   📚 {len(results)} resultados na Wikimedia")
+            
+            for result in results[:quantidade * 2]:
+                if len(midias) >= quantidade:
+                    break
+                
+                # Pegar URL da imagem
+                title = result['title']
+                
+                params_img = {
+                    'action': 'query',
+                    'format': 'json',
+                    'titles': title,
+                    'prop': 'imageinfo',
+                    'iiprop': 'url',
+                    'iiurlwidth': 1920
+                }
+                
+                try:
+                    response_img = requests.get(url, params=params_img, timeout=10)
+                    
+                    if response_img.status_code == 200:
+                        data_img = response_img.json()
+                        pages = data_img.get('query', {}).get('pages', {})
+                        
+                        for page in pages.values():
+                            imageinfo = page.get('imageinfo', [])
+                            if imageinfo:
+                                url_img = imageinfo[0].get('thumburl') or imageinfo[0].get('url')
+                                
+                                if url_img:
+                                    try:
+                                        img_response = requests.get(url_img, timeout=10, stream=True)
+                                        
+                                        if img_response.status_code == 200:
+                                            temp_file = f'{ASSETS_DIR}/wiki_{len(midias)}.jpg'
+                                            
+                                            with open(temp_file, 'wb') as f:
+                                                for chunk in img_response.iter_content(chunk_size=8192):
+                                                    if chunk:
+                                                        f.write(chunk)
+                                            
+                                            if os.path.getsize(temp_file) > 10000:
+                                                midias.append((temp_file, 'foto_local'))
+                                                print(f"   ✅ WIKIMEDIA: {len(midias)}/{quantidade}")
+                                            else:
+                                                os.remove(temp_file)
+                                    except:
+                                        continue
+                except:
+                    continue
+                
+                time.sleep(0.2)
+                
+    except Exception as e:
+        print(f"   ❌ Erro WIKIMEDIA: {e}")
+    
+    if midias:
+        print(f"   ✅ WIKIMEDIA: {len(midias)} imagens válidas")
+    
+    return midias
+
+
+def buscar_midia_pexels(keywords, tipo='foto', quantidade=1):
+    """
+    PRIORIDADE 4 (ÚLTIMO RECURSO): Pexels
+    Mantido como fallback final
+    """
+    PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
+    
+    if not PEXELS_API_KEY:
+        print("   ⚠️ PEXELS_API_KEY não configurada")
+        return []
+    
     headers = {'Authorization': PEXELS_API_KEY}
     
     if isinstance(keywords, str):
@@ -380,11 +602,13 @@ def buscar_midia_pexels(keywords, tipo='video', quantidade=1):
     
     midias = []
     
-    if tipo == 'video':
-        orientacao = 'portrait' if VIDEO_TYPE == 'short' else 'landscape'
-        url = f'https://api.pexels.com/videos/search?query={palavra_busca}&per_page=30&page={pagina}&orientation={orientacao}'
+    try:
+        print(f"   📸 Buscando PEXELS: {palavra_busca}")
         
-        try:
+        if tipo == 'video':
+            orientacao = 'portrait'
+            url = f'https://api.pexels.com/videos/search?query={palavra_busca}&per_page=30&page={pagina}&orientation={orientacao}'
+            
             response = requests.get(url, headers=headers, timeout=15)
             if response.status_code == 200:
                 videos = response.json().get('videos', [])
@@ -392,25 +616,18 @@ def buscar_midia_pexels(keywords, tipo='video', quantidade=1):
                 
                 for video in videos:
                     for file in video['video_files']:
-                        if VIDEO_TYPE == 'short':
-                            if file.get('height', 0) > file.get('width', 0):
-                                midias.append((file['link'], 'video'))
-                                break
-                        else:
-                            if file.get('width', 0) >= 1280:
-                                midias.append((file['link'], 'video'))
-                                break
+                        if file.get('height', 0) > file.get('width', 0):
+                            midias.append((file['link'], 'video'))
+                            break
                     
                     if len(midias) >= quantidade:
                         break
-        except Exception as e:
-            print(f"⚠️ Pexels vídeos: {e}")
-    
-    if len(midias) < quantidade:
-        orientacao = 'portrait' if VIDEO_TYPE == 'short' else 'landscape'
-        url = f'https://api.pexels.com/v1/search?query={palavra_busca}&per_page=50&page={pagina}&orientation={orientacao}'
         
-        try:
+        # Buscar fotos
+        if len(midias) < quantidade:
+            orientacao = 'landscape'
+            url = f'https://api.pexels.com/v1/search?query={palavra_busca}&per_page=50&page={pagina}&orientation={orientacao}'
+            
             response = requests.get(url, headers=headers, timeout=15)
             if response.status_code == 200:
                 fotos = response.json().get('photos', [])
@@ -418,11 +635,98 @@ def buscar_midia_pexels(keywords, tipo='video', quantidade=1):
                 
                 for foto in fotos[:quantidade * 2]:
                     midias.append((foto['src']['large2x'], 'foto'))
-        except Exception as e:
-            print(f"⚠️ Pexels fotos: {e}")
+                    if len(midias) >= quantidade:
+                        break
+    
+    except Exception as e:
+        print(f"   ❌ Erro PEXELS: {e}")
+    
+    if midias:
+        print(f"   ✅ PEXELS: {len(midias)} mídias")
     
     random.shuffle(midias)
     return midias[:quantidade]
+
+
+def buscar_midias_final(keywords, quantidade=1):
+    """
+    🎯 FUNÇÃO PRINCIPAL - BUSCA HÍBRIDA COM FALLBACK
+    
+    Ordem de prioridade:
+    1. Banco LOCAL (mais rápido e confiável)
+    2. Google Images (melhor para política BR)
+    3. Wikimedia Commons (imagens legais e livres)
+    4. Pexels (último recurso)
+    """
+    
+    midias = []
+    
+    print(f"🔍 Buscando mídias para: {keywords}")
+    
+    # PRIORIDADE 1: Banco local
+    try:
+        midias = buscar_imagens_local(keywords, quantidade)
+        if len(midias) >= quantidade:
+            return midias
+    except Exception as e:
+        print(f"   ⚠️ Erro no banco local: {e}")
+    
+    # PRIORIDADE 2: Google Images
+    if len(midias) < quantidade:
+        try:
+            print(f"   ⚠️ Banco local: apenas {len(midias)}/{quantidade}, buscando no Google...")
+            midias_google = buscar_imagens_google(keywords, quantidade - len(midias))
+            midias.extend(midias_google)
+            
+            if len(midias) >= quantidade:
+                return midias
+        except Exception as e:
+            print(f"   ⚠️ Erro no Google: {e}")
+    
+    # PRIORIDADE 3: Wikimedia Commons
+    if len(midias) < quantidade:
+        try:
+            print(f"   ⚠️ Google: apenas {len(midias)}/{quantidade}, buscando na Wikimedia...")
+            midias_wiki = buscar_imagens_wikimedia(keywords, quantidade - len(midias))
+            midias.extend(midias_wiki)
+            
+            if len(midias) >= quantidade:
+                return midias
+        except Exception as e:
+            print(f"   ⚠️ Erro na Wikimedia: {e}")
+    
+    # PRIORIDADE 4: Pexels (último recurso)
+    if len(midias) < quantidade:
+        try:
+            print(f"   ⚠️ Wikimedia: apenas {len(midias)}/{quantidade}, buscando no Pexels (último recurso)...")
+            midias_pexels = buscar_midia_pexels(keywords, tipo='foto', quantidade=quantidade - len(midias))
+            midias.extend(midias_pexels)
+        except Exception as e:
+            print(f"   ⚠️ Erro no Pexels: {e}")
+    
+    if not midias:
+        print(f"   ❌ NENHUMA mídia encontrada para: {keywords}")
+    else:
+        print(f"   ✅ TOTAL: {len(midias)}/{quantidade} mídias encontradas")
+    
+    return midias
+
+
+# Exemplo de uso
+if __name__ == '__main__':
+    # Criar estrutura de pastas se não existir
+    os.makedirs(f'{ASSETS_DIR}/politicos/lula', exist_ok=True)
+    os.makedirs(f'{ASSETS_DIR}/politicos/bolsonaro', exist_ok=True)
+    os.makedirs(f'{ASSETS_DIR}/politicos/moraes', exist_ok=True)
+    os.makedirs(f'{ASSETS_DIR}/instituicoes/congresso', exist_ok=True)
+    os.makedirs(f'{ASSETS_DIR}/instituicoes/planalto', exist_ok=True)
+    os.makedirs(f'{ASSETS_DIR}/genericas', exist_ok=True)
+    
+    # Teste
+    resultado = buscar_midias_final(['lula', 'presidente', 'brasil'], quantidade=3)
+    print(f"\n📊 Resultado: {len(resultado)} mídias encontradas")
+    for idx, (caminho, tipo) in enumerate(resultado):
+        print(f"   {idx+1}. {caminho} ({tipo})")
 
 def baixar_midia(url, filename):
     """Baixa uma mídia da URL"""
@@ -749,7 +1053,7 @@ def main():
         keywords_busca = keywords
 
     # Analisar roteiro e buscar mídias sincronizadas
-    midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao, usar_bing)
+    midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao)
 
     # Complementar se houver poucas mídias
     if len(midias_sincronizadas) < 3:
