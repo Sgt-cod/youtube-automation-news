@@ -312,7 +312,7 @@ def buscar_imagens_local(keywords, quantidade=1):
         'mossad': 'instituicoes/mossad',
         'nsa': 'instituicoes/nsa',
         'onu': 'instituicoes/onu',
-        'otan': 'instituicoes/otan,
+        'otan': 'instituicoes/otan',
         
     }
     
