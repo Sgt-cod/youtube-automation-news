@@ -260,7 +260,7 @@ def buscar_imagens_local(keywords, quantidade=1):
         'davi alcolumbre': 'politicos/davi_alcolumbre',
         'dias toffoli': 'politicos/dias_toffoli',
         'donald trump': 'politicos/donald_trump',
-        'geraldo alckmin': ''politicos/geraldo_alckmin',
+        'geraldo alckmin': 'politicos/geraldo_alckmin',
         'alckmin': 'politicos/geraldo_alckmin',
         'gilmar mendes': 'politicos/gilmar_mendes',
         'hugo mota': 'politicos/hugo_mota',
@@ -268,7 +268,7 @@ def buscar_imagens_local(keywords, quantidade=1):
         'milei': 'politicos/javier_milei',
         'joe biden': 'politicos/joe_biden',
         'biden': 'politicos/joe_biden',
-        'ministro barroso'; 'politicos/luis_roberto_barroso
+        'ministro barroso'; 'politicos/luis_roberto_barroso',
         'barroso'; 'politicos/luis_roberto_barroso',
         'luiz roberto barroso'; 'politicos/luis_roberto_barroso',
         'macron': 'politicos/macron',
