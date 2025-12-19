@@ -256,6 +256,30 @@ def buscar_imagens_local(keywords, quantidade=1):
         'ciro': 'politicos/ciro_gomes',
         'dino': 'politicos/flavio_dino',
         'flavio dino': 'politicos/flavio_dino',
+        'carmen lucia': 'politicos/carmen_lucia',
+        'davi alcolumbre': 'politicos/davi_alcolumbre',
+        'dias toffoli': 'politicos/dias_toffoli',
+        'donald trump': 'politicos/donald_trump',
+        'geraldo alckmin': ''politicos/geraldo_alckmin',
+        'alckmin': 'politicos/geraldo_alckmin',
+        'gilmar mendes': 'politicos/gilmar_mendes',
+        'hugo mota': 'politicos/hugo_mota',
+        'javier milei': 'politicos/javier_milei',
+        'milei': 'politicos/javier_milei',
+        'joe biden': 'politicos/joe_biden',
+        'biden': 'politicos/joe_biden',
+        'ministro barroso'; 'politicos/luis_roberto_barroso
+        'barroso'; 'politicos/luis_roberto_barroso',
+        'luiz roberto barroso'; 'politicos/luis_roberto_barroso',
+        'macron': 'politicos/macron',
+        'nayib bukele': 'politicos/nayib_bukele',
+        'bukele': 'politicos/nayib_bukele',
+        'netanyahu': 'politicos/netanyahu',
+        'nicolas maduro': 'politicos/nicolas_maduro',
+        'putin': 'politicos/putin',
+        'xi jinping': 'politicos/xi_jinping',
+        'zanin': 'politicos/zanin',
+        
     }
     
     mapa_instituicoes = {
@@ -278,6 +302,18 @@ def buscar_imagens_local(keywords, quantidade=1):
         'governo federal': 'instituicoes/governo',
         'brasil': 'genericas',
         'brazilian': 'genericas',
+        'policia federal': 'instituicoes/policia_federal',
+        'banco central': 'instituicoes/banco_central',
+        'casa branca': 'instituicoes/casa-branca',
+        'cia': 'instituicoes/cia',
+        'esplanada': 'instituicoes/esplanada_dos_ministerios',
+        'fbi': 'instituicoes/fbi',
+        'mi6': 'instituicoes/mi6',
+        'mossad': 'instituicoes/mossad',
+        'nsa': 'instituicoes/nsa',
+        'onu': 'instituicoes/onu',
+        'otan': 'instituicoes/otan,
+        
     }
     
     midias = []
