@@ -303,7 +303,7 @@ def buscar_imagens_local(keywords, quantidade=1):
         'brazilian': 'instituicoes/brasil',
         'policia federal': 'instituicoes/policia_federal',
         'banco central': 'instituicoes/banco_central',
-        'casa branca': 'instituicoes/casa-branca',
+        'casa branca': 'instituicoes/casa_branca',
         'cia': 'instituicoes/cia',
         'esplanada': 'instituicoes/esplanada_dos_ministerios',
         'fbi': 'instituicoes/fbi',
