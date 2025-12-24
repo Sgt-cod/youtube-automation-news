@@ -680,26 +680,47 @@ def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file,
     
     return output_file
 
-def solicitar_thumbnail_telegram(titulo):
-    """Solicita thumbnail via Telegram"""
+import time
+import os
+
+def solicitar_thumbnail_telegram(titulo, timeout=7200, intervalo=20):
+    """Solicita thumbnail via Telegram e aguarda até receber"""
+
     if not USAR_CURACAO:
         return None
-    
-    print("🖼️ Solicitando thumbnail...")
-    
+
+    print("🖼️ Solicitando thumbnail via Telegram...")
+    inicio = time.time()
+
     try:
         curator = TelegramCuratorNoticias()
-        thumbnail_path = curator.solicitar_thumbnail(titulo, timeout=CURACAO_TIMEOUT)
-        
-        if thumbnail_path and os.path.exists(thumbnail_path):
-            print(f"✅ Thumbnail recebida: {thumbnail_path}")
-            return thumbnail_path
-        else:
-            print("⚠️ Sem thumbnail")
-            return None
+
+        # 🔔 avisa UMA vez
+        curator.enviar_mensagem(
+            f"🖼️ Envie a THUMBNAIL para o vídeo:\n\n{titulo}\n\n"
+            f"⏳ Aguardando por até {timeout//3600}h."
+        )
+
+        while True:
+            thumbnail_path = curator.solicitar_thumbnail(titulo)
+
+            # ✅ thumbnail chegou
+            if thumbnail_path and os.path.exists(thumbnail_path):
+                print(f"✅ Thumbnail recebida: {thumbnail_path}")
+                return thumbnail_path
+
+            # ❌ estourou tempo máximo
+            if time.time() - inicio > timeout:
+                print("⏰ Tempo máximo de espera pela thumbnail excedido.")
+                return None
+
+            # 😴 evita consumo excessivo
+            time.sleep(intervalo)
+
     except Exception as e:
         print(f"❌ Erro thumbnail: {e}")
         return None
+
 
 def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None):
     """Faz upload com thumbnail opcional"""
