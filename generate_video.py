@@ -415,7 +415,8 @@ def criar_clip_legenda(texto, duracao, largura, altura):
             draw.text((x, y), linha, font=font, fill=(255, 255, 255, alpha))
         
         # Converter para array numpy
-        return np.array(img)
+        img_rgb = img.convert("RGB")
+        return np.array(img_rgb)
     
     return VideoClip(make_frame, duration=duracao)
 
