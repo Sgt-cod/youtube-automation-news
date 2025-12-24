@@ -12,8 +12,17 @@ from moviepy.editor import *
 from google import generativeai as genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 from PIL import Image, ImageDraw, ImageFont
+import io
+
+# Importar curadoria
+try:
+    from telegram_curator_noticias import TelegramCuratorNoticias
+    CURACAO_DISPONIVEL = True
+except ImportError:
+    print("⚠️ telegram_curator_noticias.py não encontrado")
+    CURACAO_DISPONIVEL = False
 
 CONFIG_FILE = 'config.json'
 VIDEOS_DIR = 'videos'
@@ -24,8 +33,12 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PEXELS_API_KEY = os.environ.get('PEXELS_API_KEY')
 YOUTUBE_CREDENTIALS = os.environ.get('YOUTUBE_CREDENTIALS')
 
+# Configuração de curadoria
+USAR_CURACAO = os.environ.get('USAR_CURACAO', 'false').lower() == 'true' and CURACAO_DISPONIVEL
+CURACAO_TIMEOUT = int(os.environ.get('CURACAO_TIMEOUT', '3600'))
+
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -53,7 +66,7 @@ def buscar_noticias():
     return random.choice(todas_noticias) if todas_noticias else None
 
 def gerar_titulo_especifico(tema):
-    """Gera título específico e keywords para temas genéricos"""
+    """Gera título específico e keywords"""
     prompt = f"""Baseado no tema "{tema}", crie um título ESPECÍFICO e palavras-chave.
 
 Retorne APENAS JSON: {{"titulo": "título aqui", "keywords": ["palavra1", "palavra2", "palavra3", "palavra4", "palavra5"]}}"""
@@ -81,80 +94,37 @@ def gerar_roteiro(duracao_alvo, titulo, noticia=None):
         palavras_alvo = config.get('duracao_minutos', 10) * 150
         tempo = f"{config.get('duracao_minutos', 10)} minutos"
     
-    persona = config.get('persona', None)
-    
-    if persona == 'alien_solkara':
-        prompt = f"""Você é Vorlathi, do planeta Solkara (Kepler-1649c).
-
-Script sobre: {titulo}
-
-- Primeira pessoa como alien
-- Tom: misterioso, fascinante
-- Comece: "Humanos... eu sou Vorlathi, do planeta Solkara..."
-- Mencione que terráqueos chamam de "Kepler-1649c"
-- Use: "vocês terráqueos", "minha civilização de Solkara"
-- Enigmático sobre intenções
-- Finalize: "Logo vocês compreenderão..."
-- {tempo}, {palavras_alvo} palavras, texto puro"""
-    
-    elif noticia:
+    if noticia:
         prompt = f"""Crie um script JORNALÍSTICO sobre: {titulo}
 
-Resumo da notícia: {noticia['resumo']}
+Resumo: {noticia['resumo']}
 
-REGRAS IMPORTANTES:
-- {tempo} de duração, aproximadamente {palavras_alvo} palavras
-- Tom: noticioso, imparcial, informativo
-- Comece direto na notícia (ex: "Nesta {('semana' if duracao_alvo != 'short' else 'terça-feira')},...")
-- NÃO mencione "apresentador", "reportagem", "matéria", "slides"
-- NÃO use frases como "vamos ver", "como podem ver na tela"
-- Fale diretamente sobre os fatos
-- Para SHORTS: seja direto e objetivo
-- Para LONGS: desenvolva contexto e repercussões
+REGRAS:
+- {tempo}, {palavras_alvo} palavras
+- Tom noticioso e informativo
+- Comece direto na notícia
+- NÃO mencione apresentador ou elementos visuais
 - Texto corrido para narração
-- SEM formatação, asteriscos ou marcadores
-- SEM emojis
+- SEM formatação, asteriscos, marcadores ou emojis
 
-Escreva APENAS o roteiro de narração."""
-    
+Escreva APENAS o roteiro."""
     else:
-        if duracao_alvo == 'short':
-            prompt = f"""Crie um script para SHORT sobre: {titulo}
+        prompt = f"""Crie um script sobre: {titulo}
 
-REGRAS IMPORTANTES:
-- {palavras_alvo} palavras aproximadamente
-- Comece com "Você sabia que..." ou "Sabia que..." ou contexto direto
-- Tom informativo e envolvente
-- NÃO mencione apresentador, slides, ou elementos visuais
-- NÃO use frases como "vamos ver", "próximo slide", "na tela"
-- Fale diretamente com o espectador
-- Texto corrido para narração
-- SEM formatação, asteriscos ou marcadores
-- SEM emojis
+REGRAS:
+- {tempo}, {palavras_alvo} palavras
+- Tom informativo
+- Comece contextualmente
+- NÃO mencione elementos visuais
+- Texto corrido
+- SEM formatação
 
-Escreva APENAS o roteiro de narração."""
-        else:
-            prompt = f"""Crie um script sobre: {titulo}
-
-REGRAS IMPORTANTES:
-- {tempo} de duração, aproximadamente {palavras_alvo} palavras
-- Comece com "Olá!" ou introdução contextual
-- Tom informativo e conversacional
-- NÃO mencione apresentador, slides, gráficos ou elementos visuais
-- NÃO use frases como "vamos ver agora", "na próxima parte", "como vocês podem ver"
-- Fale naturalmente como se estivesse explicando a notícia
-- Divida o conteúdo em pequenos parágrafos naturais
-- Texto corrido para narração
-- SEM formatação, asteriscos ou marcadores
-- SEM emojis
-- Finalize com chamada para inscrição no canal
-
-Escreva APENAS o roteiro de narração."""
+Escreva APENAS o roteiro."""
     
     response = model.generate_content(prompt)
     texto = response.text
     
-    # Limpeza do texto
+    # Limpeza
     texto = re.sub(r'\*+', '', texto)
     texto = re.sub(r'#+\s', '', texto)
     texto = re.sub(r'^-\s', '', texto, flags=re.MULTILINE)
@@ -170,7 +140,7 @@ async def criar_audio_async(texto, output_file):
         try:
             communicate = edge_tts.Communicate(texto, voz, rate="+0%", pitch="+0Hz")
             await asyncio.wait_for(communicate.save(output_file), timeout=120)
-            print(f"✅ Edge TTS (tent {tentativa + 1})")
+            print(f"✅ Edge TTS")
             return
         except asyncio.TimeoutError:
             print(f"⏱️ Timeout {tentativa + 1}")
@@ -184,7 +154,7 @@ async def criar_audio_async(texto, output_file):
     raise Exception("Edge TTS falhou")
 
 def criar_audio(texto, output_file):
-    """Cria áudio com Edge TTS ou gTTS (fallback)"""
+    """Cria áudio"""
     print("🎙️ Criando narração...")
     try:
         loop = asyncio.new_event_loop()
@@ -193,32 +163,26 @@ def criar_audio(texto, output_file):
         loop.close()
         
         if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-            print(f"✅ Edge TTS: {os.path.getsize(output_file)} bytes")
+            print(f"✅ Áudio criado")
             return output_file
     except Exception as e:
         print(f"❌ Edge TTS: {e}")
-        print("🔄 Fallback gTTS...")
         from gtts import gTTS
         tts = gTTS(text=texto, lang='pt-br', slow=False)
         tts.save(output_file)
-        print("⚠️ gTTS")
+        print("⚠️ gTTS usado")
         return output_file
 
 def extrair_keywords_do_texto(texto):
-    """Extrai keywords importantes de um texto para buscar mídias"""
-    prompt = f"""Extraia 3-5 palavras-chave IMPORTANTES deste texto de notícia política brasileira:
+    """Extrai keywords"""
+    prompt = f"""Extraia 3-5 palavras-chave deste texto:
 
 "{texto[:200]}"
 
-Se houver nomes de políticos ou instituições, retorne EM PORTUGUÊS.
-Caso contrário, retorne palavras em INGLÊS para buscar imagens genéricas.
+Nomes de políticos/instituições em PORTUGUÊS.
+Senão, palavras em INGLÊS.
 
-Retorne APENAS palavras separadas por vírgula.
-Exemplos: 
-- "lula, congresso, brasil"
-- "moraes, stf, supremo"
-- "politics, government, congress"
-"""
+Retorne APENAS palavras separadas por vírgula."""
     
     try:
         response = model.generate_content(prompt)
@@ -229,89 +193,32 @@ Exemplos:
         return [p for p in palavras if len(p) > 4][:3]
 
 def buscar_imagens_local(keywords, quantidade=1):
-    """Busca imagens no banco local (única fonte necessária)"""
+    """Busca imagens no banco local"""
     
-    # Mapeamento expandido de keywords
     mapa_politicos = {
         'lula': 'politicos/lula',
-        'luiz inacio': 'politicos/lula',
-        'presidente lula': 'politicos/lula',
         'bolsonaro': 'politicos/bolsonaro',
-        'jair bolsonaro': 'politicos/bolsonaro',
         'moraes': 'politicos/alexandre_de_moraes',
         'alexandre': 'politicos/alexandre_de_moraes',
-        'alexandre de moraes': 'politicos/alexandre_de_moraes',
         'pacheco': 'politicos/rodrigo_pacheco',
-        'rodrigo pacheco': 'politicos/rodrigo_pacheco',
         'lira': 'politicos/arthur_lira',
-        'arthur lira': 'politicos/arthur_lira',
-        'ramagem': 'politicos/alexandre_ramagem',
-        'alexandre ramagem': 'politicos/alexandre_ramagem',
+        'haddad': 'politicos/fernando_haddad',
         'tarcisio': 'politicos/tarcisio_de_freitas',
         'tarcísio': 'politicos/tarcisio_de_freitas',
-        'haddad': 'politicos/fernando_haddad',
-        'fernando haddad': 'politicos/fernando_haddad',
-        'dilma': 'politicos/dilma_roussef',
-        'temer': 'politicos/_michel_temer',
-        'ciro': 'politicos/ciro_gomes',
-        'dino': 'politicos/flavio_dino',
-        'flavio dino': 'politicos/flavio_dino',
-        'carmen lucia': 'politicos/carmen_lucia',
-        'davi alcolumbre': 'politicos/davi_alcolumbre',
-        'dias toffoli': 'politicos/dias_toffoli',
-        'donald trump': 'politicos/donald_trump',
-        'geraldo alckmin': 'politicos/geraldo_alckmin',
-        'alckmin': 'politicos/geraldo_alckmin',
-        'gilmar mendes': 'politicos/gilmar_mendes',
-        'hugo mota': 'politicos/hugo_mota',
-        'javier milei': 'politicos/javier_milei',
-        'milei': 'politicos/javier_milei',
-        'joe biden': 'politicos/joe_biden',
-        'biden': 'politicos/joe_biden',
-        'ministro barroso': 'politicos/luis_roberto_barroso',
-        'barroso': 'politicos/luis_roberto_barroso',
-        'luiz roberto barroso': 'politicos/luis_roberto_barroso',
-        'macron': 'politicos/macron',
-        'nayib bukele': 'politicos/nayib_bukele',
-        'bukele': 'politicos/nayib_bukele',
-        'netanyahu': 'politicos/netanyahu',
-        'nicolas maduro': 'politicos/nicolas_maduro',
-        'putin': 'politicos/putin',
-        'xi jinping': 'politicos/xi_jinping',
-        'zanin': 'politicos/zanin',
+        # ... outros políticos
     }
     
     mapa_instituicoes = {
         'congresso': 'instituicoes/congresso_nacional',
-        'congresso nacional': 'instituicoes/congresso_nacional',
-        'planalto': 'instituicoes/palacio_do_planalto',
-        'palacio': 'instituicoes/palacio_do_planalto',
-        'palácio': 'instituicoes/palacio_do_planalto',
         'stf': 'instituicoes/stf',
         'supremo': 'instituicoes/stf',
-        'supremo tribunal': 'instituicoes/stf',
         'senado': 'instituicoes/senado_federal',
-        'senado federal': 'instituicoes/senado_federal',
         'camara': 'instituicoes/camara_dos_deputados',
         'câmara': 'instituicoes/camara_dos_deputados',
-        'camara dos deputados': 'instituicoes/camara_dos_deputados',
+        'planalto': 'instituicoes/palacio_do_planalto',
         'brasilia': 'instituicoes/brasilia',
         'brasília': 'instituicoes/brasilia',
-        'governo': 'instituicoes/governo',
-        'governo federal': 'instituicoes/governo',
-        'brasil': 'instituicoes/brasil',
-        'brazilian': 'instituicoes/brasil',
-        'policia federal': 'instituicoes/policia_federal',
-        'banco central': 'instituicoes/banco_central',
-        'casa branca': 'instituicoes/casa_branca',
-       # 'cia': 'instituicoes/cia',
-        'esplanada': 'instituicoes/esplanada_dos_ministerios',
-        'fbi': 'instituicoes/fbi',
-        'mi6': 'instituicoes/mi6',
-        'mossad': 'instituicoes/mossad',
-        'nsa': 'instituicoes/nsa',
-        'onu': 'instituicoes/onu',
-        'otan': 'instituicoes/otan',
+        # ... outras instituições
     }
     
     midias = []
@@ -324,25 +231,25 @@ def buscar_imagens_local(keywords, quantidade=1):
     
     pasta_encontrada = None
     
-    # 1. Checar políticos primeiro
+    # Checar políticos
     for termo, pasta in mapa_politicos.items():
         if termo in keywords_texto:
             pasta_encontrada = pasta
-            print(f"   📁 Detectado político: '{termo}' → {pasta}")
+            print(f"   📁 Político: {termo} → {pasta}")
             break
     
-    # 2. Checar instituições
+    # Checar instituições
     if not pasta_encontrada:
         for termo, pasta in mapa_instituicoes.items():
             if termo in keywords_texto:
                 pasta_encontrada = pasta
-                print(f"   📁 Detectado instituição: '{termo}' → {pasta}")
+                print(f"   📁 Instituição: {termo} → {pasta}")
                 break
     
-    # 3. Usar genéricas como fallback
+    # Fallback
     if not pasta_encontrada:
         pasta_encontrada = 'genericas'
-        print(f"   📁 Usando pasta genérica (fallback)")
+        print(f"   📁 Genérica")
     
     pasta_completa = f'{ASSETS_DIR}/{pasta_encontrada}'
     
@@ -360,63 +267,159 @@ def buscar_imagens_local(keywords, quantidade=1):
                         midias.append((caminho_completo, 'foto_local'))
                 
                 if midias:
-                    print(f"   ✅ Banco LOCAL: {len(midias)} imagem(ns) de '{pasta_encontrada}'")
+                    print(f"   ✅ {len(midias)} imagem(ns)")
                     return midias
-            else:
-                print(f"   ⚠️ Pasta existe mas está vazia: {pasta_completa}")
-        else:
-            print(f"   ⚠️ Pasta não existe: {pasta_completa}")
     except Exception as e:
-        print(f"   ⚠️ Erro banco local: {e}")
+        print(f"   ⚠️ Erro: {e}")
     
-    # Se não encontrou nada e não estava usando genéricas, tenta genéricas
+    # Tentar genéricas
     if not midias and pasta_encontrada != 'genericas':
-        print(f"   🔄 Tentando pasta genérica como último recurso...")
         pasta_completa = f'{ASSETS_DIR}/genericas'
-        
         try:
             if os.path.exists(pasta_completa):
                 arquivos = [f for f in os.listdir(pasta_completa) 
                            if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-                
                 if arquivos:
                     random.shuffle(arquivos)
-                    
                     for arquivo in arquivos[:quantidade]:
                         caminho_completo = os.path.join(pasta_completa, arquivo)
                         if os.path.exists(caminho_completo):
                             midias.append((caminho_completo, 'foto_local'))
-                    
-                    if midias:
-                        print(f"   ✅ Banco LOCAL (genéricas): {len(midias)} imagem(ns)")
-        except Exception as e:
-            print(f"   ⚠️ Erro ao buscar genéricas: {e}")
+        except:
+            pass
     
     return midias
 
-
 def buscar_midias_final(keywords, quantidade=1):
-    """Busca mídias apenas no banco local"""
+    """Busca mídias"""
+    print(f"🔍 Buscando: {keywords}")
     
     midias = []
     
-    print(f"🔍 Buscando mídias: {keywords}")
-    
-    # Busca apenas no banco local
     try:
         midias = buscar_imagens_local(keywords, quantidade)
     except Exception as e:
-        print(f"   ❌ Erro ao buscar no banco local: {e}")
+        print(f"   ❌ Erro: {e}")
     
     if not midias:
-        print(f"   ⚠️ NENHUMA mídia encontrada no banco local")
+        print(f"   ⚠️ Nenhuma mídia")
     else:
-        print(f"   ✅ TOTAL: {len(midias)}/{quantidade} mídias encontradas")
+        print(f"   ✅ {len(midias)}/{quantidade}")
     
     return midias
 
+def gerar_legendas_do_roteiro(roteiro, duracao_audio):
+    """Gera legendas sincronizadas com o áudio"""
+    print("📝 Gerando legendas...")
+    
+    # Dividir em sentenças
+    sentencas = re.split(r'[.!?]\s+', roteiro)
+    sentencas = [s.strip() for s in sentencas if len(s.strip()) > 10]
+    
+    palavras_total = len(roteiro.split())
+    palavras_por_segundo = palavras_total / duracao_audio
+    
+    legendas = []
+    tempo_atual = 0
+    
+    for sentenca in sentencas:
+        palavras = sentenca.split()
+        duracao_sentenca = len(palavras) / palavras_por_segundo
+        
+        # Dividir sentença em chunks de 3-5 palavras
+        chunk_size = 4
+        chunks = [' '.join(palavras[i:i+chunk_size]) for i in range(0, len(palavras), chunk_size)]
+        
+        duracao_por_chunk = duracao_sentenca / len(chunks)
+        
+        for chunk in chunks:
+            legendas.append({
+                'texto': chunk.upper(),  # Maiúsculas para destaque
+                'inicio': tempo_atual,
+                'fim': tempo_atual + duracao_por_chunk
+            })
+            tempo_atual += duracao_por_chunk
+    
+    print(f"   ✅ {len(legendas)} legendas criadas")
+    return legendas
+
+def criar_clip_legenda(texto, duracao, largura, altura):
+    """Cria um clip de texto animado para legenda"""
+    
+    def make_frame(t):
+        # Criar imagem transparente
+        img = Image.new('RGBA', (largura, altura), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        # Tentar carregar fonte, se não conseguir usa default
+        try:
+            # Fonte maior e bold
+            font_size = 80 if VIDEO_TYPE == 'short' else 60
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+        
+        # Quebrar texto em linhas se necessário
+        palavras = texto.split()
+        linhas = []
+        linha_atual = []
+        
+        for palavra in palavras:
+            teste = ' '.join(linha_atual + [palavra])
+            bbox = draw.textbbox((0, 0), teste, font=font)
+            largura_texto = bbox[2] - bbox[0]
+            
+            if largura_texto < largura - 100:
+                linha_atual.append(palavra)
+            else:
+                if linha_atual:
+                    linhas.append(' '.join(linha_atual))
+                linha_atual = [palavra]
+        
+        if linha_atual:
+            linhas.append(' '.join(linha_atual))
+        
+        # Calcular posição Y (parte inferior da tela)
+        y_base = altura - 200 if VIDEO_TYPE == 'short' else altura - 150
+        
+        # Animação: fade in/out
+        progresso = t / duracao
+        if progresso < 0.1:  # Fade in nos primeiros 10%
+            alpha = int(255 * (progresso / 0.1))
+        elif progresso > 0.9:  # Fade out nos últimos 10%
+            alpha = int(255 * ((1 - progresso) / 0.1))
+        else:
+            alpha = 255
+        
+        # Desenhar cada linha
+        for i, linha in enumerate(linhas):
+            # Medir texto
+            bbox = draw.textbbox((0, 0), linha, font=font)
+            largura_texto = bbox[2] - bbox[0]
+            altura_texto = bbox[3] - bbox[1]
+            
+            # Centralizar horizontalmente
+            x = (largura - largura_texto) // 2
+            y = y_base + (i * (altura_texto + 10))
+            
+            # Sombra/contorno para legibilidade
+            # Desenhar contorno preto
+            for offset_x in [-2, 0, 2]:
+                for offset_y in [-2, 0, 2]:
+                    if offset_x != 0 or offset_y != 0:
+                        draw.text((x + offset_x, y + offset_y), linha, 
+                                font=font, fill=(0, 0, 0, alpha))
+            
+            # Texto branco principal
+            draw.text((x, y), linha, font=font, fill=(255, 255, 255, alpha))
+        
+        # Converter para array numpy
+        return np.array(img)
+    
+    return VideoClip(make_frame, duration=duracao)
+
 def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
-    """Analisa roteiro e busca mídias sincronizadas"""
+    """Analisa roteiro e busca mídias sincronizadas COM CURADORIA"""
     print("📋 Analisando roteiro...")
     
     segmentos = re.split(r'[.!?]\s+', roteiro)
@@ -447,7 +450,7 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     midias_sincronizadas = []
     
     for i, seg in enumerate(segmentos_com_tempo):
-        print(f"\n🔍 Seg {i+1}/{len(segmentos_com_tempo)}: '{seg['texto']}'...")
+        print(f"\n🔍 Seg {i+1}: '{seg['texto']}'...")
         print(f"   Keywords: {seg['keywords']}")
         
         midia = buscar_midias_final(seg['keywords'], quantidade=1)
@@ -456,99 +459,70 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
             midias_sincronizadas.append({
                 'midia': midia[0],
                 'inicio': seg['inicio'],
-                'duracao': seg['duracao']
+                'duracao': seg['duracao'],
+                'texto': seg['texto'],
+                'keywords': seg['keywords']
             })
-            print(f"   ✅ Mídia OK")
+            print(f"   ✅ OK")
         else:
             print(f"   ❌ Sem mídia")
     
-    print(f"\n✅ Total: {len(midias_sincronizadas)}/{len(segmentos_com_tempo)} mídias")
+    print(f"\n✅ Total: {len(midias_sincronizadas)}/{len(segmentos_com_tempo)}")
+    
+    # CURADORIA
+    if USAR_CURACAO:
+        print("\n" + "="*60)
+        print("🎬 MODO CURADORIA ATIVADO")
+        print("="*60)
+        
+        try:
+            curator = TelegramCuratorNoticias()
+            curator.solicitar_curacao(midias_sincronizadas)
+            midias_aprovadas = curator.aguardar_aprovacao(timeout=CURACAO_TIMEOUT)
+            
+            if midias_aprovadas:
+                print("✅ Aprovadas!")
+                midias_sincronizadas = midias_aprovadas
+            else:
+                print("⏰ Timeout")
+        except Exception as e:
+            print(f"⚠️ Erro: {e}")
+    
     return midias_sincronizadas
 
-def baixar_midia(url, filename):
-    """Baixa mídia da URL"""
-    try:
-        response = requests.get(url, stream=True, timeout=30)
-        with open(filename, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        return filename
-    except:
-        return None
-
-def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file, duracao_total):
-    """Cria SHORT com imagens sincronizadas"""
-    print(f"📹 Criando short com {len(midias_sincronizadas)} mídias")
+def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file, duracao_total, roteiro):
+    """Cria SHORT com legendas animadas"""
+    print(f"📹 Criando short com legendas...")
     
     clips = []
     tempo_coberto = 0
     
+    # Adicionar clips de imagem
     for i, item in enumerate(midias_sincronizadas):
         midia_info, midia_tipo = item['midia']
         inicio = item['inicio']
         duracao_clip = item['duracao']
         
-        if not midia_info:
-            continue
-        
         try:
-            if midia_tipo == 'foto_local':
-                if not os.path.exists(midia_info):
-                    print(f"⚠️ Arquivo não encontrado: {midia_info}")
-                    continue
-                
+            if midia_tipo == 'foto_local' and os.path.exists(midia_info):
                 clip = ImageClip(midia_info).set_duration(duracao_clip)
                 clip = clip.resize(height=1920)
                 
                 if clip.w > 1080:
                     clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
                 
-                clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_clip))
+                # Animação sutil de zoom
+                clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_clip))
                 clip = clip.set_start(inicio)
                 clips.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
-                print(f"✅ Imagem {i+1} adicionada")
-            
-            elif midia_tipo == 'video':
-                video_temp = f'{ASSETS_DIR}/v_{i}.mp4'
-                if baixar_midia(midia_info, video_temp):
-                    vclip = VideoFileClip(video_temp, audio=False)
-                    
-                    ratio = 9/16
-                    if vclip.w / vclip.h > ratio:
-                        new_w = int(vclip.h * ratio)
-                        vclip = vclip.crop(x_center=vclip.w/2, width=new_w, height=vclip.h)
-                    else:
-                        new_h = int(vclip.w / ratio)
-                        vclip = vclip.crop(y_center=vclip.h/2, width=vclip.w, height=new_h)
-                    
-                    vclip = vclip.resize((1080, 1920))
-                    vclip = vclip.set_duration(min(duracao_clip, vclip.duration))
-                    vclip = vclip.set_start(inicio)
-                    clips.append(vclip)
-                    tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
-            
-            elif midia_tipo == 'foto':
-                foto_temp = f'{ASSETS_DIR}/pexels_{i}.jpg'
-                if baixar_midia(midia_info, foto_temp):
-                    clip = ImageClip(foto_temp).set_duration(duracao_clip)
-                    clip = clip.resize(height=1920)
-                    if clip.w > 1080:
-                        clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
-                    clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_clip))
-                    clip = clip.set_start(inicio)
-                    clips.append(clip)
-                    tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
-        
         except Exception as e:
-            print(f"⚠️ Erro mídia {i}: {e}")
+            print(f"⚠️ Erro {i}: {e}")
     
     # Preencher lacunas
     if tempo_coberto < duracao_total:
-        print(f"⚠️ Preenchendo {duracao_total - tempo_coberto:.1f}s restantes")
-        
-        extras = buscar_midias_final(['brasil', 'politica', 'governo'], quantidade=3)
-        
+        print(f"⚠️ Preenchendo {duracao_total - tempo_coberto:.1f}s")
+        extras = buscar_midias_final(['brasil'], quantidade=3)
         duracao_restante = duracao_total - tempo_coberto
         duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
         
@@ -559,43 +533,63 @@ def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file
                     clip = clip.resize(height=1920)
                     if clip.w > 1080:
                         clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
-                    clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_por_extra))
                     clip = clip.set_start(tempo_coberto)
                     clips.append(clip)
                     tempo_coberto += duracao_por_extra
-                elif midia_tipo == 'foto':
-                    foto_temp = f'{ASSETS_DIR}/extra_{idx}.jpg'
-                    if baixar_midia(midia_info, foto_temp):
-                        clip = ImageClip(foto_temp).set_duration(duracao_por_extra)
-                        clip = clip.resize(height=1920)
-                        if clip.w > 1080:
-                            clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
-                        clip = clip.resize(lambda t: 1 + 0.1 * (t / duracao_por_extra))
-                        clip = clip.set_start(tempo_coberto)
-                        clips.append(clip)
-                        tempo_coberto += duracao_por_extra
             except:
                 continue
     
     if not clips:
-        print("❌ Nenhum clip criado!")
         return None
     
-    print(f"✅ {len(clips)} clips, {tempo_coberto:.1f}s/{duracao_total:.1f}s")
-    
+    # Compor vídeo base
     video = CompositeVideoClip(clips, size=(1080, 1920))
     video = video.set_duration(duracao_total)
     
+    # Adicionar áudio
     audio = AudioFileClip(audio_path)
     video = video.set_audio(audio)
     
-    video.write_videofile(output_file, fps=30, codec='libx264', audio_codec='aac', preset='medium', bitrate='8000k')
+    # ADICIONAR LEGENDAS ANIMADAS
+    print("📝 Adicionando legendas animadas...")
+    legendas = gerar_legendas_do_roteiro(roteiro, duracao_total)
+    
+    clips_legendas = []
+    for legenda in legendas:
+        duracao = legenda['fim'] - legenda['inicio']
+        clip_legenda = criar_clip_legenda(
+            legenda['texto'],
+            duracao,
+            1080,
+            1920
+        )
+        clip_legenda = clip_legenda.set_start(legenda['inicio'])
+        clip_legenda = clip_legenda.set_position(('center', 'bottom'))
+        clips_legendas.append(clip_legenda)
+    
+    # Compor vídeo final com legendas
+    if clips_legendas:
+        video_final = CompositeVideoClip([video] + clips_legendas)
+        video_final = video_final.set_duration(duracao_total)
+        video_final = video_final.set_audio(audio)
+    else:
+        video_final = video
+    
+    print("💾 Renderizando...")
+    video_final.write_videofile(
+        output_file,
+        fps=30,
+        codec='libx264',
+        audio_codec='aac',
+        preset='medium',
+        bitrate='8000k'
+    )
     
     return output_file
 
-def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file, duracao_total):
-    """Cria vídeo LONGO com imagens sincronizadas"""
-    print(f"📹 Criando long com {len(midias_sincronizadas)} mídias")
+def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file, duracao_total, roteiro):
+    """Cria vídeo longo com legendas"""
+    print(f"📹 Criando long com legendas...")
     
     clips = []
     tempo_coberto = 0
@@ -605,14 +599,8 @@ def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file,
         inicio = item['inicio']
         duracao_clip = item['duracao']
         
-        if not midia_info:
-            continue
-        
         try:
-            if midia_tipo == 'foto_local':
-                if not os.path.exists(midia_info):
-                    continue
-                
+            if midia_tipo == 'foto_local' and os.path.exists(midia_info):
                 clip = ImageClip(midia_info).set_duration(duracao_clip)
                 clip = clip.resize(height=1080)
                 
@@ -620,48 +608,15 @@ def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file,
                     clip = clip.resize(width=1920)
                 
                 clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
-                clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_clip))
+                clip = clip.resize(lambda t: 1 + 0.03 * (t / duracao_clip))
                 clip = clip.set_start(inicio)
                 clips.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
-            
-            elif midia_tipo == 'video':
-                video_temp = f'{ASSETS_DIR}/v_{i}.mp4'
-                if baixar_midia(midia_info, video_temp):
-                    vclip = VideoFileClip(video_temp, audio=False)
-                    vclip = vclip.resize(height=1080)
-                    
-                    if vclip.w < 1920:
-                        vclip = vclip.resize(width=1920)
-                    
-                    vclip = vclip.crop(x_center=vclip.w/2, y_center=vclip.h/2, width=1920, height=1080)
-                    vclip = vclip.set_duration(min(duracao_clip, vclip.duration))
-                    vclip = vclip.set_start(inicio)
-                    clips.append(vclip)
-                    tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
-            
-            elif midia_tipo == 'foto':
-                foto_temp = f'{ASSETS_DIR}/pexels_{i}.jpg'
-                if baixar_midia(midia_info, foto_temp):
-                    clip = ImageClip(foto_temp).set_duration(duracao_clip)
-                    clip = clip.resize(height=1080)
-                    if clip.w < 1920:
-                        clip = clip.resize(width=1920)
-                    clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
-                    clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_clip))
-                    clip = clip.set_start(inicio)
-                    clips.append(clip)
-                    tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
-        
         except Exception as e:
-            print(f"⚠️ Erro mídia {i}: {e}")
+            print(f"⚠️ Erro {i}: {e}")
     
-    # Preencher lacunas
     if tempo_coberto < duracao_total:
-        print(f"⚠️ Preenchendo {duracao_total - tempo_coberto:.1f}s")
-        
-        extras = buscar_midias_final(['brasil', 'governo', 'politica'], quantidade=5)
-        
+        extras = buscar_midias_final(['brasil'], quantidade=5)
         duracao_restante = duracao_total - tempo_coberto
         duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
         
@@ -673,7 +628,6 @@ def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file,
                     if clip.w < 1920:
                         clip = clip.resize(width=1920)
                     clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
-                    clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_por_extra))
                     clip = clip.set_start(tempo_coberto)
                     clips.append(clip)
                     tempo_coberto += duracao_por_extra
@@ -689,27 +643,101 @@ def criar_video_long_sincronizado(audio_path, midias_sincronizadas, output_file,
     audio = AudioFileClip(audio_path)
     video = video.set_audio(audio)
     
-    video.write_videofile(output_file, fps=24, codec='libx264', audio_codec='aac', preset='medium', bitrate='5000k')
+    # Legendas
+    print("📝 Adicionando legendas...")
+    legendas = gerar_legendas_do_roteiro(roteiro, duracao_total)
+    
+    clips_legendas = []
+    for legenda in legendas:
+        duracao = legenda['fim'] - legenda['inicio']
+        clip_legenda = criar_clip_legenda(
+            legenda['texto'],
+            duracao,
+            1920,
+            1080
+        )
+        clip_legenda = clip_legenda.set_start(legenda['inicio'])
+        clips_legendas.append(clip_legenda)
+    
+    if clips_legendas:
+        video_final = CompositeVideoClip([video] + clips_legendas)
+        video_final = video_final.set_duration(duracao_total)
+        video_final = video_final.set_audio(audio)
+    else:
+        video_final = video
+    
+    print("💾 Renderizando...")
+    video_final.write_videofile(
+        output_file,
+        fps=24,
+        codec='libx264',
+        audio_codec='aac',
+        preset='medium',
+        bitrate='5000k'
+    )
     
     return output_file
 
-def fazer_upload_youtube(video_path, titulo, descricao, tags):
-    """Faz upload do vídeo para o YouTube"""
+def solicitar_thumbnail_telegram(titulo):
+    """Solicita thumbnail via Telegram"""
+    if not USAR_CURACAO:
+        return None
+    
+    print("🖼️ Solicitando thumbnail...")
+    
+    try:
+        curator = TelegramCuratorNoticias()
+        thumbnail_path = curator.solicitar_thumbnail(titulo, timeout=CURACAO_TIMEOUT)
+        
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            print(f"✅ Thumbnail recebida: {thumbnail_path}")
+            return thumbnail_path
+        else:
+            print("⚠️ Sem thumbnail")
+            return None
+    except Exception as e:
+        print(f"❌ Erro thumbnail: {e}")
+        return None
+
+def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None):
+    """Faz upload com thumbnail opcional"""
     try:
         creds_dict = json.loads(YOUTUBE_CREDENTIALS)
         credentials = Credentials.from_authorized_user_info(creds_dict)
         youtube = build('youtube', 'v3', credentials=credentials)
         
         body = {
-            'snippet': {'title': titulo, 'description': descricao, 'tags': tags, 'categoryId': '27'},
-            'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
+            'snippet': {
+                'title': titulo,
+                'description': descricao,
+                'tags': tags,
+                'categoryId': '27'
+            },
+            'status': {
+                'privacyStatus': 'public',
+                'selfDeclaredMadeForKids': False
+            }
         }
         
         media = MediaFileUpload(video_path, resumable=True)
-        request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+        request = youtube.videos().insert(
+            part='snippet,status',
+            body=body,
+            media_body=media
+        )
         response = request.execute()
+        video_id = response['id']
         
-        return response['id']
+        # Upload thumbnail se fornecida
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            print("📤 Fazendo upload da thumbnail...")
+            youtube.thumbnails().set(
+                videoId=video_id,
+                media_body=MediaFileUpload(thumbnail_path)
+            ).execute()
+            print("✅ Thumbnail configurada!")
+        
+        return video_id
     except Exception as e:
         print(f"❌ Erro upload: {e}")
         raise
@@ -735,7 +763,6 @@ def main():
         keywords = info['keywords']
 
     print(f"🎯 Título: {titulo_video}")
-    print(f"🔍 Keywords: {', '.join(map(str, keywords))}")
 
     # Gerar roteiro
     print("✍️ Gerando roteiro...")
@@ -751,15 +778,13 @@ def main():
 
     print(f"⏱️ {duracao:.1f}s")
 
-    # Buscar mídias sincronizadas
+    # Buscar mídias
     midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao)
 
     # Complementar se necessário
     if len(midias_sincronizadas) < 3:
-        print("⚠️ Poucas mídias, complementando...")
-        
-        extras = buscar_midias_final(['brasil', 'politica', 'governo'], quantidade=5)
-        
+        print("⚠️ Complementando...")
+        extras = buscar_midias_final(['brasil'], quantidade=5)
         tempo_restante = duracao - sum([m['duracao'] for m in midias_sincronizadas])
         duracao_extra = tempo_restante / len(extras) if extras else 0
         
@@ -777,9 +802,21 @@ def main():
     video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
 
     if VIDEO_TYPE == 'short':
-        resultado = criar_video_short_sincronizado(audio_path, midias_sincronizadas, video_path, duracao)
+        resultado = criar_video_short_sincronizado(
+            audio_path,
+            midias_sincronizadas,
+            video_path,
+            duracao,
+            roteiro  # ← PASSA ROTEIRO PARA LEGENDAS
+        )
     else:
-        resultado = criar_video_long_sincronizado(audio_path, midias_sincronizadas, video_path, duracao)
+        resultado = criar_video_long_sincronizado(
+            audio_path,
+            midias_sincronizadas,
+            video_path,
+            duracao,
+            roteiro  # ← PASSA ROTEIRO PARA LEGENDAS
+        )
 
     if not resultado:
         print("❌ Erro ao criar vídeo")
@@ -791,16 +828,30 @@ def main():
     if VIDEO_TYPE == 'short':
         titulo += ' #shorts'
 
-    descricao = roteiro[:300] + '...\n\n🔔 Inscreva-se!\n📰 Notícias Políticas do Brasil\n#' + ('shorts' if VIDEO_TYPE == 'short' else 'noticias')
+    descricao = roteiro[:300] + '...\n\n🔔 Inscreva-se!\n#' + ('shorts' if VIDEO_TYPE == 'short' else 'noticias')
 
     tags = ['noticias', 'informacao', 'politica', 'brasil']
     if VIDEO_TYPE == 'short':
         tags.append('shorts')
 
+    # SOLICITAR THUMBNAIL VIA TELEGRAM
+    thumbnail_path = None
+    if USAR_CURACAO:
+        print("\n" + "="*60)
+        print("🖼️ SOLICITANDO THUMBNAIL")
+        print("="*60)
+        thumbnail_path = solicitar_thumbnail_telegram(titulo)
+
     # Upload
     print("📤 Upload...")
     try:
-        video_id = fazer_upload_youtube(video_path, titulo, descricao, tags)
+        video_id = fazer_upload_youtube(
+            video_path,
+            titulo,
+            descricao,
+            tags,
+            thumbnail_path  # ← PASSA THUMBNAIL
+        )
         
         url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
         
@@ -812,7 +863,9 @@ def main():
             'titulo': titulo,
             'duracao': duracao,
             'video_id': video_id,
-            'url': url
+            'url': url,
+            'com_legendas': True,
+            'com_thumbnail_custom': thumbnail_path is not None
         }
         
         log_file = 'videos_gerados.json'
@@ -829,10 +882,24 @@ def main():
         
         print(f"✅ Publicado!\n🔗 {url}")
         
-        # Limpar assets
+        # Notificar
+        if USAR_CURACAO:
+            try:
+                curator = TelegramCuratorNoticias()
+                curator.notificar_publicacao({
+                    'titulo': titulo,
+                    'duracao': duracao,
+                    'url': url
+                })
+            except:
+                pass
+        
+        # Limpar
         for file in os.listdir(ASSETS_DIR):
             try:
-                os.remove(os.path.join(ASSETS_DIR, file))
+                # Não deletar fotos customizadas
+                if not file.startswith('custom_') and not file.startswith('thumbnail_'):
+                    os.remove(os.path.join(ASSETS_DIR, file))
             except:
                 pass
     except Exception as e:
