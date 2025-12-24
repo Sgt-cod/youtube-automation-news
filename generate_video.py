@@ -8,6 +8,7 @@ from datetime import datetime
 import requests
 import feedparser
 import edge_tts
+import numpy as np
 from moviepy.editor import *
 from google import generativeai as genai
 from google.oauth2.credentials import Credentials
