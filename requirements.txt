@@ -13,7 +13,6 @@ google-auth==2.25.2
 google-auth-oauthlib==1.2.0
 requests==2.31.0
 pillow==9.5.0
-numpy==1.24.3
 decorator==4.4.2
 proglog==0.1.10
 tqdm==4.66.1
