@@ -599,7 +599,132 @@ class TelegramCuratorNoticias:
         except:
             pass
     
-    def notificar_publicacao(self, video_info):
+    def solicitar_thumbnail(self, titulo, timeout=600):
+        """Solicita thumbnail customizada via Telegram"""
+        print("🖼️ Solicitando thumbnail...")
+        
+        # Criar arquivo de controle
+        thumbnail_file = 'thumbnail_pendente.json'
+        data = {
+            'titulo': titulo,
+            'status': 'aguardando',
+            'thumbnail_path': None,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        with open(thumbnail_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        # Enviar solicitação
+        self.enviar_mensagem(
+            f"🖼️ <b>THUMBNAIL CUSTOMIZADA</b>\n\n"
+            f"📺 <b>Título do vídeo:</b>\n"
+            f"<i>{titulo}</i>\n\n"
+            f"📤 <b>Envie a imagem para a thumbnail</b>\n\n"
+            f"💡 Recomendações:\n"
+            f"• Resolução: 1280x720 (mínimo)\n"
+            f"• Formato: JPG ou PNG\n"
+            f"• Texto legível\n"
+            f"• Chamativo\n\n"
+            f"⏱️ Você tem {timeout//60} minutos\n\n"
+            f"Ou use /pular para usar thumbnail automática"
+        )
+        
+        # Aguardar thumbnail
+        inicio = time.time()
+        
+        while time.time() - inicio < timeout:
+            if os.path.exists(thumbnail_file):
+                with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                if data['status'] == 'recebida':
+                    print("✅ Thumbnail recebida!")
+                    thumbnail_path = data['thumbnail_path']
+                    
+                    # Limpar arquivo de controle
+                    try:
+                        os.remove(thumbnail_file)
+                    except:
+                        pass
+                    
+                    return thumbnail_path
+                
+                elif data['status'] == 'pulada':
+                    print("⏭️ Thumbnail pulada")
+                    try:
+                        os.remove(thumbnail_file)
+                    except:
+                        pass
+                    return None
+            
+            # Processar updates
+            self._processar_atualizacoes()
+            time.sleep(2)
+        
+        # Timeout
+        print("⏰ Timeout thumbnail")
+        self.enviar_mensagem("⏰ Timeout - usando thumbnail automática")
+        
+        try:
+            os.remove(thumbnail_file)
+        except:
+            pass
+        
+        return None
+    
+    def _processar_thumbnail(self, message):
+        """Processa thumbnail enviada"""
+        thumbnail_file = 'thumbnail_pendente.json'
+        
+        if not os.path.exists(thumbnail_file):
+            return
+        
+        print("📸 Thumbnail recebida")
+        
+        self.enviar_mensagem("📥 Baixando thumbnail...")
+        
+        try:
+            # Pegar maior resolução
+            photo = message['photo'][-1]
+            file_id = photo['file_id']
+            
+            # Obter file_path
+            file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
+            file_response = requests.get(file_info_url, timeout=10)
+            file_data = file_response.json()
+            
+            if not file_data.get('ok'):
+                raise Exception("Erro ao obter arquivo")
+            
+            file_path = file_data['result']['file_path']
+            
+            # Baixar
+            download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
+            foto_response = requests.get(download_url, timeout=15)
+            
+            # Salvar
+            thumbnail_path = f'{ASSETS_DIR}/thumbnail_custom.jpg'
+            with open(thumbnail_path, 'wb') as f:
+                f.write(foto_response.content)
+            
+            print(f"✅ Thumbnail salva: {thumbnail_path}")
+            
+            # Atualizar status
+            with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            data['status'] = 'recebida'
+            data['thumbnail_path'] = thumbnail_path
+            
+            with open(thumbnail_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            self.enviar_mensagem("✅ <b>Thumbnail recebida!</b>\n\nContinuando...")
+            
+        except Exception as e:
+            print(f"❌ Erro: {e}")
+            self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
         """Notifica publicação"""
         mensagem = (
             f"🎉 <b>VÍDEO PUBLICADO!</b>\n\n"
