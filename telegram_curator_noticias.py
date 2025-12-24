@@ -370,12 +370,31 @@ class TelegramCuratorNoticias:
             )
         
         elif text == '/pular':
-            print("⏭️ Pular - aprovar restantes")
-            data['status'] = 'aprovado'
-            with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            # Verificar se é para thumbnail ou curadoria
+            thumbnail_file = 'thumbnail_pendente.json'
             
-            self.enviar_mensagem("⏭️ <b>Restantes aprovados!</b>")
+            if os.path.exists(thumbnail_file):
+                # Pular thumbnail
+                print("⏭️ Pular thumbnail")
+                
+                with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                data['status'] = 'pulada'
+                
+                with open(thumbnail_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                
+                self.enviar_mensagem("⏭️ <b>Usando thumbnail automática</b>")
+            
+            elif os.path.exists(CURACAO_FILE):
+                # Pular curadoria
+                print("⏭️ Pular curadoria")
+                data['status'] = 'aprovado'
+                with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                
+                self.enviar_mensagem("⏭️ <b>Restantes aprovados!</b>")
         
         elif text == '/retomar':
             print("🔄 Retomar")
@@ -397,7 +416,15 @@ class TelegramCuratorNoticias:
         
         # Verificar se é FOTO ENVIADA
         elif 'photo' in message:
-            self._processar_foto_enviada(message)
+            # Verificar se é para thumbnail ou curadoria
+            thumbnail_file = 'thumbnail_pendente.json'
+            
+            if os.path.exists(thumbnail_file):
+                # É thumbnail
+                self._processar_thumbnail(message)
+            elif os.path.exists(CURACAO_FILE):
+                # É foto de curadoria
+                self._processar_foto_enviada(message)
     
     def _processar_foto_enviada(self, message):
         """Processa foto enviada pelo usuário"""
