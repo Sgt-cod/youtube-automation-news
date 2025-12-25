@@ -139,7 +139,6 @@ class TelegramCuratorNoticias:
         texto_seg = seg['texto']
         keywords = seg.get('keywords', [])
         
-        # Caption
         caption = (
             f"📌 <b>Segmento {num}/{total}</b>\n\n"
             f"📝 <i>\"{texto_seg}...\"</i>\n\n"
@@ -148,7 +147,6 @@ class TelegramCuratorNoticias:
             f"<i>Se travar, use /retomar</i>"
         )
         
-        # Botões
         keyboard = {
             'inline_keyboard': [
                 [
@@ -163,7 +161,6 @@ class TelegramCuratorNoticias:
         
         print(f"📤 Enviando segmento {num}/{total}...")
         
-        # Enviar foto LOCAL
         resultado = self.enviar_foto(midia_info, caption, keyboard)
         
         if resultado:
@@ -239,14 +236,12 @@ class TelegramCuratorNoticias:
                 
                 return None
             
-            # Progresso
             if int(tempo_decorrido) % 60 == 0 and tempo_decorrido != ultima_verificacao:
                 minutos = int(tempo_decorrido / 60)
                 restantes = int((timeout - tempo_decorrido) / 60)
                 print(f"⏱️ {minutos}min | {restantes}min restantes")
                 ultima_verificacao = tempo_decorrido
             
-            # Verificar travamento
             if os.path.exists(CURACAO_FILE):
                 with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -270,7 +265,6 @@ class TelegramCuratorNoticias:
                         ultimo_aviso = tempo_sem_resposta
                         print(f"⚠️ Travamento? {minutos_travado}min")
             
-            # Status
             if os.path.exists(CURACAO_FILE):
                 with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -370,11 +364,9 @@ class TelegramCuratorNoticias:
             )
         
         elif text == '/pular':
-            # Verificar se é para thumbnail ou curadoria
             thumbnail_file = 'thumbnail_pendente.json'
             
             if os.path.exists(thumbnail_file):
-                # Pular thumbnail
                 print("⏭️ Pular thumbnail")
                 
                 with open(thumbnail_file, 'r', encoding='utf-8') as f:
@@ -388,7 +380,6 @@ class TelegramCuratorNoticias:
                 self.enviar_mensagem("⏭️ <b>Usando thumbnail automática</b>")
             
             elif os.path.exists(CURACAO_FILE):
-                # Pular curadoria
                 print("⏭️ Pular curadoria")
                 data['status'] = 'aprovado'
                 with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
@@ -414,16 +405,12 @@ class TelegramCuratorNoticias:
             else:
                 self.enviar_mensagem("❌ Todos enviados")
         
-        # Verificar se é FOTO ENVIADA
         elif 'photo' in message:
-            # Verificar se é para thumbnail ou curadoria
             thumbnail_file = 'thumbnail_pendente.json'
             
             if os.path.exists(thumbnail_file):
-                # É thumbnail
                 self._processar_thumbnail(message)
             elif os.path.exists(CURACAO_FILE):
-                # É foto de curadoria
                 self._processar_foto_enviada(message)
     
     def _processar_foto_enviada(self, message):
@@ -447,11 +434,9 @@ class TelegramCuratorNoticias:
         self.enviar_mensagem(f"📥 Baixando sua foto...")
         
         try:
-            # Pegar maior resolução
             photo = message['photo'][-1]
             file_id = photo['file_id']
             
-            # Obter file_path
             file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
             file_response = requests.get(file_info_url, timeout=10)
             file_data = file_response.json()
@@ -461,27 +446,22 @@ class TelegramCuratorNoticias:
             
             file_path = file_data['result']['file_path']
             
-            # Baixar foto
             download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
             foto_response = requests.get(download_url, timeout=15)
             
-            # Salvar
             foto_filename = f'{ASSETS_DIR}/custom_{num}.jpg'
             with open(foto_filename, 'wb') as f:
                 f.write(foto_response.content)
             
             print(f"✅ Foto salva: {foto_filename}")
             
-            # Atualizar segmento
             seg = data['segmentos'][idx]
             seg['midia'] = (foto_filename, 'foto_local')
             seg['customizado'] = True
             data['segmentos'][idx] = seg
             
-            # Registrar aprovação
             data['aprovacoes'][str(idx)] = 'aprovado'
             
-            # Incrementar
             if idx + 1 < total:
                 data['segmento_atual'] = idx + 1
             else:
@@ -564,11 +544,9 @@ class TelegramCuratorNoticias:
             caminho_atual = seg['midia'][0]
             pasta = os.path.dirname(caminho_atual)
             
-            # Listar arquivos da pasta
             arquivos = [f for f in os.listdir(pasta) 
                        if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
             
-            # Remover a atual
             nome_atual = os.path.basename(caminho_atual)
             if nome_atual in arquivos:
                 arquivos.remove(nome_atual)
@@ -625,13 +603,10 @@ class TelegramCuratorNoticias:
             }, timeout=5)
         except:
             pass
-
-        return None
     
     def solicitar_thumbnail(self, titulo, timeout=1200):
         print("🖼️ Solicitando thumbnail...")
         
-        # Criar arquivo de controle
         thumbnail_file = 'thumbnail_pendente.json'
         data = {
             'titulo': titulo,
@@ -643,7 +618,6 @@ class TelegramCuratorNoticias:
         with open(thumbnail_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
-        # Enviar solicitação com instruções claras
         self.enviar_mensagem(
             f"🖼️ <b>THUMBNAIL CUSTOMIZADA</b>\n\n"
             f"📺 <b>Vídeo:</b>\n"
@@ -658,14 +632,12 @@ class TelegramCuratorNoticias:
             f"⏭️ Use /pular para thumbnail automática"
         )
         
-        # Aguardar com indicadores de progresso
         inicio = time.time()
         ultimo_aviso = 0
         
         while time.time() - inicio < timeout:
             tempo_decorrido = time.time() - inicio
             
-            # Avisos de progresso a cada 5 minutos
             if int(tempo_decorrido) // 300 > ultimo_aviso:
                 minutos_restantes = int((timeout - tempo_decorrido) / 60)
                 self.enviar_mensagem(
@@ -683,7 +655,6 @@ class TelegramCuratorNoticias:
                     print("✅ Thumbnail recebida!")
                     thumbnail_path = data['thumbnail_path']
                     
-                    # Limpar arquivo de controle
                     try:
                         os.remove(thumbnail_file)
                     except:
@@ -700,11 +671,9 @@ class TelegramCuratorNoticias:
                     
                     return None
             
-            # Processar atualizações do Telegram
             self._processar_atualizacoes()
-            time.sleep(3)  # Verificar a cada 3 segundos
+            time.sleep(3)
         
-        # Timeout
         print("⏰ Timeout ao aguardar thumbnail")
         self.enviar_mensagem("⏰ <b>Tempo esgotado</b>\n\nUsando thumbnail automática do YouTube")
         
@@ -727,11 +696,9 @@ class TelegramCuratorNoticias:
         self.enviar_mensagem("📥 Baixando thumbnail...")
         
         try:
-            # Pegar maior resolução
             photo = message['photo'][-1]
             file_id = photo['file_id']
             
-            # Obter file_path
             file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
             file_response = requests.get(file_info_url, timeout=10)
             file_data = file_response.json()
@@ -741,39 +708,31 @@ class TelegramCuratorNoticias:
             
             file_path = file_data['result']['file_path']
             
-            # Baixar
             download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
             foto_response = requests.get(download_url, timeout=15)
             
-            # Salvar
             thumbnail_path = f'{ASSETS_DIR}/thumbnail_custom.jpg'
             with open(thumbnail_path, 'wb') as f:
                 f.write(foto_response.content)
-
-        except:
-            pass
-        
-        return None
-
-        print(f"✅ Thumbnail salva: {thumbnail_path}")
-        
-        # Atualizar status
-        with open(thumbnail_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        data['status'] = 'recebida'
-        data['thumbnail_path'] = thumbnail_path
-        
-        with open(thumbnail_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        
-        self.enviar_mensagem("✅ <b>Thumbnail recebida!</b>\n\nContinuando...")
-        
-    except Exception as e:
-        print(f"❌ Erro: {e}")
-        self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
-
-def notificar_publicacao(self, video_info):
+            
+            print(f"✅ Thumbnail salva: {thumbnail_path}")
+            
+            with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            data['status'] = 'recebida'
+            data['thumbnail_path'] = thumbnail_path
+            
+            with open(thumbnail_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            self.enviar_mensagem("✅ <b>Thumbnail recebida!</b>\n\nContinuando...")
+            
+        except Exception as e:
+            print(f"❌ Erro: {e}")
+            self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
+    
+    def notificar_publicacao(self, video_info):
     """Notifica publicação"""
     mensagem = (
         f"🎉 <b>VÍDEO PUBLICADO!</b>\n\n"
