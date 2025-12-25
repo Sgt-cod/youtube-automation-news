@@ -750,6 +750,11 @@ class TelegramCuratorNoticias:
             with open(thumbnail_path, 'wb') as f:
                 f.write(foto_response.content)
 
+        except:
+            pass
+        
+        return None
+
         print(f"✅ Thumbnail salva: {thumbnail_path}")
         
         # Atualizar status
