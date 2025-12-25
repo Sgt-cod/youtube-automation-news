@@ -733,13 +733,13 @@ class TelegramCuratorNoticias:
             self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
     
     def notificar_publicacao(self, video_info):
-    """Notifica publicação"""
-    mensagem = (
-        f"🎉 <b>VÍDEO PUBLICADO!</b>\n\n"
-        f"📺 {video_info['titulo']}\n"
-        f"⏱️ {video_info['duracao']:.1f}s\n"
-        f"🔗 {video_info['url']}\n\n"
-        f"✅ No ar!"
-    )
-    self.enviar_mensagem(mensagem)
-    print("📤 Notificação enviada")
+        """Notifica publicação"""
+        mensagem = (
+            f"🎉 <b>VÍDEO PUBLICADO!</b>\n\n"
+            f"📺 {video_info['titulo']}\n"
+            f"⏱️ {video_info['duracao']:.1f}s\n"
+            f"🔗 {video_info['url']}\n\n"
+            f"✅ No ar!"
+        )
+        self.enviar_mensagem(mensagem)
+        print("📤 Notificação enviada")
