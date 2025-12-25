@@ -625,6 +625,8 @@ class TelegramCuratorNoticias:
             }, timeout=5)
         except:
             pass
+
+        return None
     
     def solicitar_thumbnail(self, titulo, timeout=1200):
         print("🖼️ Solicitando thumbnail...")
