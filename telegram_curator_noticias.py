@@ -626,79 +626,93 @@ class TelegramCuratorNoticias:
         except:
             pass
     
-    def solicitar_thumbnail(self, titulo, timeout=600):
-        """Solicita thumbnail customizada via Telegram"""
-        print("🖼️ Solicitando thumbnail...")
+    def solicitar_thumbnail(self, titulo, timeout=1200):
+    """Solicita thumbnail customizada via Telegram - CORRIGIDO"""
+    print("🖼️ Solicitando thumbnail...")
+    
+    # Criar arquivo de controle
+    thumbnail_file = 'thumbnail_pendente.json'
+    data = {
+        'titulo': titulo,
+        'status': 'aguardando',
+        'thumbnail_path': None,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    with open(thumbnail_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    
+    # Enviar solicitação com instruções claras
+    self.enviar_mensagem(
+        f"🖼️ <b>THUMBNAIL CUSTOMIZADA</b>\n\n"
+        f"📺 <b>Vídeo:</b>\n"
+        f"<i>{titulo}</i>\n\n"
+        f"📤 <b>Envie a imagem AGORA</b>\n\n"
+        f"💡 <b>Recomendações:</b>\n"
+        f"• Resolução: 1280x720 ou superior\n"
+        f"• Formato: JPG ou PNG\n"
+        f"• Texto grande e legível\n"
+        f"• Cores vibrantes\n\n"
+        f"⏱️ Tempo: {timeout//60} minutos\n"
+        f"⏭️ Use /pular para thumbnail automática"
+    )
+    
+    # Aguardar com indicadores de progresso
+    inicio = time.time()
+    ultimo_aviso = 0
+    
+    while time.time() - inicio < timeout:
+        tempo_decorrido = time.time() - inicio
         
-        # Criar arquivo de controle
-        thumbnail_file = 'thumbnail_pendente.json'
-        data = {
-            'titulo': titulo,
-            'status': 'aguardando',
-            'thumbnail_path': None,
-            'timestamp': datetime.now().isoformat()
-        }
+        # Avisos de progresso a cada 5 minutos
+        if int(tempo_decorrido) // 300 > ultimo_aviso:
+            minutos_restantes = int((timeout - tempo_decorrido) / 60)
+            self.enviar_mensagem(
+                f"⏳ Ainda aguardando thumbnail...\n"
+                f"⏰ {minutos_restantes} minutos restantes\n"
+                f"Use /pular se não quiser enviar"
+            )
+            ultimo_aviso = int(tempo_decorrido) // 300
         
-        with open(thumbnail_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        
-        # Enviar solicitação
-        self.enviar_mensagem(
-            f"🖼️ <b>THUMBNAIL CUSTOMIZADA</b>\n\n"
-            f"📺 <b>Título do vídeo:</b>\n"
-            f"<i>{titulo}</i>\n\n"
-            f"📤 <b>Envie a imagem para a thumbnail</b>\n\n"
-            f"💡 Recomendações:\n"
-            f"• Resolução: 1280x720 (mínimo)\n"
-            f"• Formato: JPG ou PNG\n"
-            f"• Texto legível\n"
-            f"• Chamativo\n\n"
-            f"⏱️ Você tem {timeout//60} minutos\n\n"
-            f"Ou use /pular para usar thumbnail automática"
-        )
-        
-        # Aguardar thumbnail
-        inicio = time.time()
-        
-        while time.time() - inicio < timeout:
-            if os.path.exists(thumbnail_file):
-                with open(thumbnail_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                if data['status'] == 'recebida':
-                    print("✅ Thumbnail recebida!")
-                    thumbnail_path = data['thumbnail_path']
-                    
-                    # Limpar arquivo de controle
-                    try:
-                        os.remove(thumbnail_file)
-                    except:
-                        pass
-                    
-                    return thumbnail_path
-                
-                elif data['status'] == 'pulada':
-                    print("⏭️ Thumbnail pulada")
-                    try:
-                        os.remove(thumbnail_file)
-                    except:
-                        pass
-                    return None
+        if os.path.exists(thumbnail_file):
+            with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
             
-            # Processar updates
-            self._processar_atualizacoes()
-            time.sleep(2)
+            if data['status'] == 'recebida':
+                print("✅ Thumbnail recebida!")
+                thumbnail_path = data['thumbnail_path']
+                
+                # Limpar arquivo de controle
+                try:
+                    os.remove(thumbnail_file)
+                except:
+                    pass
+                
+                return thumbnail_path
+            
+            elif data['status'] == 'pulada':
+                print("⏭️ Thumbnail pulada pelo usuário")
+                try:
+                    os.remove(thumbnail_file)
+                except:
+                    pass
+                
+                return None
         
-        # Timeout
-        print("⏰ Timeout thumbnail")
-        self.enviar_mensagem("⏰ Timeout - usando thumbnail automática")
-        
-        try:
-            os.remove(thumbnail_file)
-        except:
-            pass
-        
-        return None
+        # Processar atualizações do Telegram
+        self._processar_atualizacoes()
+        time.sleep(3)  # Verificar a cada 3 segundos
+    
+    # Timeout
+    print("⏰ Timeout ao aguardar thumbnail")
+    self.enviar_mensagem("⏰ <b>Tempo esgotado</b>\n\nUsando thumbnail automática do YouTube")
+    
+    try:
+        os.remove(thumbnail_file)
+    except:
+        pass
+    
+    return None
     
     def _processar_thumbnail(self, message):
         """Processa thumbnail enviada"""
