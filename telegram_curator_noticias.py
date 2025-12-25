@@ -627,92 +627,91 @@ class TelegramCuratorNoticias:
             pass
     
     def solicitar_thumbnail(self, titulo, timeout=1200):
-    
-    print("🖼️ Solicitando thumbnail...")
-    
-    # Criar arquivo de controle
-    thumbnail_file = 'thumbnail_pendente.json'
-    data = {
-        'titulo': titulo,
-        'status': 'aguardando',
-        'thumbnail_path': None,
-        'timestamp': datetime.now().isoformat()
-    }
-    
-    with open(thumbnail_file, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    
-    # Enviar solicitação com instruções claras
-    self.enviar_mensagem(
-        f"🖼️ <b>THUMBNAIL CUSTOMIZADA</b>\n\n"
-        f"📺 <b>Vídeo:</b>\n"
-        f"<i>{titulo}</i>\n\n"
-        f"📤 <b>Envie a imagem AGORA</b>\n\n"
-        f"💡 <b>Recomendações:</b>\n"
-        f"• Resolução: 1280x720 ou superior\n"
-        f"• Formato: JPG ou PNG\n"
-        f"• Texto grande e legível\n"
-        f"• Cores vibrantes\n\n"
-        f"⏱️ Tempo: {timeout//60} minutos\n"
-        f"⏭️ Use /pular para thumbnail automática"
-    )
-    
-    # Aguardar com indicadores de progresso
-    inicio = time.time()
-    ultimo_aviso = 0
-    
-    while time.time() - inicio < timeout:
-        tempo_decorrido = time.time() - inicio
+        print("🖼️ Solicitando thumbnail...")
         
-        # Avisos de progresso a cada 5 minutos
-        if int(tempo_decorrido) // 300 > ultimo_aviso:
-            minutos_restantes = int((timeout - tempo_decorrido) / 60)
-            self.enviar_mensagem(
-                f"⏳ Ainda aguardando thumbnail...\n"
-                f"⏰ {minutos_restantes} minutos restantes\n"
-                f"Use /pular se não quiser enviar"
-            )
-            ultimo_aviso = int(tempo_decorrido) // 300
+        # Criar arquivo de controle
+        thumbnail_file = 'thumbnail_pendente.json'
+        data = {
+            'titulo': titulo,
+            'status': 'aguardando',
+            'thumbnail_path': None,
+            'timestamp': datetime.now().isoformat()
+        }
         
-        if os.path.exists(thumbnail_file):
-            with open(thumbnail_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+        with open(thumbnail_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        # Enviar solicitação com instruções claras
+        self.enviar_mensagem(
+            f"🖼️ <b>THUMBNAIL CUSTOMIZADA</b>\n\n"
+            f"📺 <b>Vídeo:</b>\n"
+            f"<i>{titulo}</i>\n\n"
+            f"📤 <b>Envie a imagem AGORA</b>\n\n"
+            f"💡 <b>Recomendações:</b>\n"
+            f"• Resolução: 1280x720 ou superior\n"
+            f"• Formato: JPG ou PNG\n"
+            f"• Texto grande e legível\n"
+            f"• Cores vibrantes\n\n"
+            f"⏱️ Tempo: {timeout//60} minutos\n"
+            f"⏭️ Use /pular para thumbnail automática"
+        )
+        
+        # Aguardar com indicadores de progresso
+        inicio = time.time()
+        ultimo_aviso = 0
+        
+        while time.time() - inicio < timeout:
+            tempo_decorrido = time.time() - inicio
             
-            if data['status'] == 'recebida':
-                print("✅ Thumbnail recebida!")
-                thumbnail_path = data['thumbnail_path']
-                
-                # Limpar arquivo de controle
-                try:
-                    os.remove(thumbnail_file)
-                except:
-                    pass
-                
-                return thumbnail_path
+            # Avisos de progresso a cada 5 minutos
+            if int(tempo_decorrido) // 300 > ultimo_aviso:
+                minutos_restantes = int((timeout - tempo_decorrido) / 60)
+                self.enviar_mensagem(
+                    f"⏳ Ainda aguardando thumbnail...\n"
+                    f"⏰ {minutos_restantes} minutos restantes\n"
+                    f"Use /pular se não quiser enviar"
+                )
+                ultimo_aviso = int(tempo_decorrido) // 300
             
-            elif data['status'] == 'pulada':
-                print("⏭️ Thumbnail pulada pelo usuário")
-                try:
-                    os.remove(thumbnail_file)
-                except:
-                    pass
+            if os.path.exists(thumbnail_file):
+                with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
                 
-                return None
+                if data['status'] == 'recebida':
+                    print("✅ Thumbnail recebida!")
+                    thumbnail_path = data['thumbnail_path']
+                    
+                    # Limpar arquivo de controle
+                    try:
+                        os.remove(thumbnail_file)
+                    except:
+                        pass
+                    
+                    return thumbnail_path
+                
+                elif data['status'] == 'pulada':
+                    print("⏭️ Thumbnail pulada pelo usuário")
+                    try:
+                        os.remove(thumbnail_file)
+                    except:
+                        pass
+                    
+                    return None
+            
+            # Processar atualizações do Telegram
+            self._processar_atualizacoes()
+            time.sleep(3)  # Verificar a cada 3 segundos
         
-        # Processar atualizações do Telegram
-        self._processar_atualizacoes()
-        time.sleep(3)  # Verificar a cada 3 segundos
-    
-    # Timeout
-    print("⏰ Timeout ao aguardar thumbnail")
-    self.enviar_mensagem("⏰ <b>Tempo esgotado</b>\n\nUsando thumbnail automática do YouTube")
-    
-    try:
-        os.remove(thumbnail_file)
-    except:
-        pass
-    
-    return None
+        # Timeout
+        print("⏰ Timeout ao aguardar thumbnail")
+        self.enviar_mensagem("⏰ <b>Tempo esgotado</b>\n\nUsando thumbnail automática do YouTube")
+        
+        try:
+            os.remove(thumbnail_file)
+        except:
+            pass
+        
+        return None
     
     def _processar_thumbnail(self, message):
         """Processa thumbnail enviada"""
@@ -748,31 +747,33 @@ class TelegramCuratorNoticias:
             thumbnail_path = f'{ASSETS_DIR}/thumbnail_custom.jpg'
             with open(thumbnail_path, 'wb') as f:
                 f.write(foto_response.content)
-            
-            print(f"✅ Thumbnail salva: {thumbnail_path}")
-            
-            # Atualizar status
-            with open(thumbnail_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            data['status'] = 'recebida'
-            data['thumbnail_path'] = thumbnail_path
-            
-            with open(thumbnail_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            
-            self.enviar_mensagem("✅ <b>Thumbnail recebida!</b>\n\nContinuando...")
-            
-        except Exception as e:
-            print(f"❌ Erro: {e}")
-            self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
-        """Notifica publicação"""
-        mensagem = (
-            f"🎉 <b>VÍDEO PUBLICADO!</b>\n\n"
-            f"📺 {video_info['titulo']}\n"
-            f"⏱️ {video_info['duracao']:.1f}s\n"
-            f"🔗 {video_info['url']}\n\n"
-            f"✅ No ar!"
-        )
-        self.enviar_mensagem(mensagem)
-        print("📤 Notificação enviada")
+
+        print(f"✅ Thumbnail salva: {thumbnail_path}")
+        
+        # Atualizar status
+        with open(thumbnail_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        data['status'] = 'recebida'
+        data['thumbnail_path'] = thumbnail_path
+        
+        with open(thumbnail_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        self.enviar_mensagem("✅ <b>Thumbnail recebida!</b>\n\nContinuando...")
+        
+    except Exception as e:
+        print(f"❌ Erro: {e}")
+        self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
+
+def notificar_publicacao(self, video_info):
+    """Notifica publicação"""
+    mensagem = (
+        f"🎉 <b>VÍDEO PUBLICADO!</b>\n\n"
+        f"📺 {video_info['titulo']}\n"
+        f"⏱️ {video_info['duracao']:.1f}s\n"
+        f"🔗 {video_info['url']}\n\n"
+        f"✅ No ar!"
+    )
+    self.enviar_mensagem(mensagem)
+    print("📤 Notificação enviada")
