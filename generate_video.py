@@ -780,6 +780,53 @@ def main():
     
     # [... código de busca de notícias e geração de roteiro ...]
     
+    
+    # Buscar notícia ou usar tema
+    noticia = None
+    if config.get('tipo') == 'noticias':
+        print("📰 Buscando notícias...")
+        noticia = buscar_noticias()
+        if noticia:
+            titulo_video = noticia['titulo']
+            print(f"✅ Notícia: {titulo_video[:50]}...")
+        else:
+            print("⚠️ Sem notícias, usando tema padrão")
+            titulo_video = config.get('tema', 'Notícias do Brasil')
+    else:
+        titulo_video = config.get('tema', 'Informação')
+    
+    # Gerar título específico e keywords
+    print("📝 Gerando título...")
+    resultado = gerar_titulo_especifico(titulo_video)
+    titulo_video = resultado['titulo']
+    keywords_base = resultado.get('keywords', [])
+    
+    print(f"✅ Título: {titulo_video}")
+    print(f"🔑 Keywords: {keywords_base}")
+    
+    # Gerar roteiro
+    print("📄 Gerando roteiro...")
+    roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticia)
+    print(f"✅ Roteiro: {len(roteiro)} caracteres")
+    
+    # Criar áudio
+    audio_path = f'{ASSETS_DIR}/naracao.mp3'
+    criar_audio(roteiro, audio_path)
+    
+    # Obter duração do áudio
+    audio_clip = AudioFileClip(audio_path)
+    duracao = audio_clip.duration
+    audio_clip.close()
+    print(f"⏱️ Duração: {duracao:.1f}s")
+    
+    # Analisar roteiro e buscar mídias
+    midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao)
+    
+    if not midias_sincronizadas:
+        print("❌ Nenhuma mídia encontrada")
+        return
+    
+    
     # Montar vídeo
     print("🎥 Montando vídeo...")
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
