@@ -627,7 +627,7 @@ class TelegramCuratorNoticias:
             pass
     
     def solicitar_thumbnail(self, titulo, timeout=1200):
-    """Solicita thumbnail customizada via Telegram - CORRIGIDO"""
+    
     print("🖼️ Solicitando thumbnail...")
     
     # Criar arquivo de controle
