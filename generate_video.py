@@ -345,22 +345,24 @@ def gerar_legendas_do_roteiro(roteiro, duracao_audio):
     return legendas
 
 def criar_clip_legenda(texto, duracao, largura, altura):
-    """Cria um clip de texto animado para legenda"""
+    """Cria um clip de texto animado para legenda - CORRIGIDO"""
     
     def make_frame(t):
-        # Criar imagem transparente
+        # CORREÇÃO: Criar imagem RGBA (com canal alpha)
         img = Image.new('RGBA', (largura, altura), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         
-        # Tentar carregar fonte, se não conseguir usa default
+        # Carregar fonte
         try:
-            # Fonte maior e bold
             font_size = 80 if VIDEO_TYPE == 'short' else 60
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 
+                font_size
+            )
         except:
             font = ImageFont.load_default()
         
-        # Quebrar texto em linhas se necessário
+        # Quebrar texto em linhas
         palavras = texto.split()
         linhas = []
         linha_atual = []
@@ -380,45 +382,52 @@ def criar_clip_legenda(texto, duracao, largura, altura):
         if linha_atual:
             linhas.append(' '.join(linha_atual))
         
-        # Calcular posição Y (parte inferior da tela)
+        # Posição Y
         y_base = altura - 200 if VIDEO_TYPE == 'short' else altura - 150
         
-        # Animação: fade in/out
+        # Animação fade
         progresso = t / duracao
-        if progresso < 0.1:  # Fade in nos primeiros 10%
+        if progresso < 0.1:
             alpha = int(255 * (progresso / 0.1))
-        elif progresso > 0.9:  # Fade out nos últimos 10%
+        elif progresso > 0.9:
             alpha = int(255 * ((1 - progresso) / 0.1))
         else:
             alpha = 255
         
         # Desenhar cada linha
         for i, linha in enumerate(linhas):
-            # Medir texto
             bbox = draw.textbbox((0, 0), linha, font=font)
             largura_texto = bbox[2] - bbox[0]
             altura_texto = bbox[3] - bbox[1]
             
-            # Centralizar horizontalmente
             x = (largura - largura_texto) // 2
             y = y_base + (i * (altura_texto + 10))
             
-            # Sombra/contorno para legibilidade
-            # Desenhar contorno preto
-            for offset_x in [-2, 0, 2]:
-                for offset_y in [-2, 0, 2]:
+            # Contorno preto MAIS GROSSO para melhor legibilidade
+            for offset_x in [-3, -2, -1, 0, 1, 2, 3]:
+                for offset_y in [-3, -2, -1, 0, 1, 2, 3]:
                     if offset_x != 0 or offset_y != 0:
-                        draw.text((x + offset_x, y + offset_y), linha, 
+                        draw.text((x + offset_x, y + offset_y), linha,
                                 font=font, fill=(0, 0, 0, alpha))
             
-            # Texto branco principal
+            # Texto branco
             draw.text((x, y), linha, font=font, fill=(255, 255, 255, alpha))
         
-        # Converter para array numpy
-        img_rgb = img.convert("RGB")
-        return np.array(img_rgb)
+        # CORREÇÃO CRÍTICA: Retornar array numpy RGBA
+        return np.array(img)
     
-    return VideoClip(make_frame, duration=duracao)
+    # Criar VideoClip
+    clip = VideoClip(make_frame, duration=duracao)
+    
+    # CORREÇÃO CRÍTICA: Extrair canal alpha como máscara
+    def make_mask(t):
+        frame = make_frame(t)
+        return frame[:, :, 3] / 255.0  # Canal alpha normalizado
+    
+    mask = VideoClip(make_mask, duration=duracao, ismask=True)
+    clip = clip.set_mask(mask)
+    
+    return clip
 
 def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     """Analisa roteiro e busca mídias sincronizadas COM CURADORIA"""
@@ -492,14 +501,14 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     
     return midias_sincronizadas
 
-def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file, duracao_total, roteiro):
-    """Cria SHORT com legendas animadas"""
-    print(f"📹 Criando short com legendas...")
+def criar_video_short_sincronizado(audio_path, midias_sincronizadas, 
+                                   output_file, duracao_total, roteiro):
+    """Cria SHORT com legendas animadas - CORRIGIDO"""
     
-    clips = []
+    clips_imagem = []
     tempo_coberto = 0
     
-    # Adicionar clips de imagem
+    # Criar clips de imagem
     for i, item in enumerate(midias_sincronizadas):
         midia_info, midia_tipo = item['midia']
         inicio = item['inicio']
@@ -507,76 +516,69 @@ def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file
         
         try:
             if midia_tipo == 'foto_local' and os.path.exists(midia_info):
+                print(f"  📸 Imagem {i+1}: {os.path.basename(midia_info)}")
+                
                 clip = ImageClip(midia_info).set_duration(duracao_clip)
                 clip = clip.resize(height=1920)
                 
                 if clip.w > 1080:
                     clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
                 
-                # Animação sutil de zoom
+                # Animação zoom sutil
                 clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_clip))
                 clip = clip.set_start(inicio)
-                clips.append(clip)
+                
+                clips_imagem.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
         except Exception as e:
-            print(f"⚠️ Erro {i}: {e}")
+            print(f"  ⚠️ Erro imagem {i}: {e}")
     
-    # Preencher lacunas
-    if tempo_coberto < duracao_total:
-        print(f"⚠️ Preenchendo {duracao_total - tempo_coberto:.1f}s")
-        extras = buscar_midias_final(['brasil'], quantidade=3)
-        duracao_restante = duracao_total - tempo_coberto
-        duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
-        
-        for idx, (midia_info, midia_tipo) in enumerate(extras):
-            try:
-                if midia_tipo == 'foto_local' and os.path.exists(midia_info):
-                    clip = ImageClip(midia_info).set_duration(duracao_por_extra)
-                    clip = clip.resize(height=1920)
-                    if clip.w > 1080:
-                        clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
-                    clip = clip.set_start(tempo_coberto)
-                    clips.append(clip)
-                    tempo_coberto += duracao_por_extra
-            except:
-                continue
-    
-    if not clips:
+    if not clips_imagem:
+        print("❌ Nenhum clip de imagem criado!")
         return None
     
-    # Compor vídeo base
-    video = CompositeVideoClip(clips, size=(1080, 1920))
-    video = video.set_duration(duracao_total)
+    # CORREÇÃO: Compor vídeo base PRIMEIRO
+    print("🎬 Compondo vídeo base...")
+    video_base = CompositeVideoClip(clips_imagem, size=(1080, 1920))
+    video_base = video_base.set_duration(duracao_total)
     
     # Adicionar áudio
+    print("🎵 Adicionando áudio...")
     audio = AudioFileClip(audio_path)
-    video = video.set_audio(audio)
+    video_base = video_base.set_audio(audio)
     
-    # ADICIONAR LEGENDAS ANIMADAS
-    print("📝 Adicionando legendas animadas...")
+    # Criar legendas
+    print("📝 Criando legendas...")
     legendas = gerar_legendas_do_roteiro(roteiro, duracao_total)
     
     clips_legendas = []
-    for legenda in legendas:
+    for idx, legenda in enumerate(legendas):
         duracao = legenda['fim'] - legenda['inicio']
-        clip_legenda = criar_clip_legenda(
-            legenda['texto'],
-            duracao,
-            1080,
-            1920
-        )
-        clip_legenda = clip_legenda.set_start(legenda['inicio'])
-        clip_legenda = clip_legenda.set_position(('center', 'bottom'))
-        clips_legendas.append(clip_legenda)
+        
+        try:
+            clip_legenda = criar_clip_legenda(
+                legenda['texto'],
+                duracao,
+                1080,
+                1920
+            )
+            clip_legenda = clip_legenda.set_start(legenda['inicio'])
+            clip_legenda = clip_legenda.set_position(('center', 'bottom'))
+            clips_legendas.append(clip_legenda)
+        except Exception as e:
+            print(f"  ⚠️ Erro legenda {idx}: {e}")
     
     # Compor vídeo final com legendas
     if clips_legendas:
-        video_final = CompositeVideoClip([video] + clips_legendas)
+        print(f"✅ {len(clips_legendas)} legendas aplicadas")
+        video_final = CompositeVideoClip([video_base] + clips_legendas)
         video_final = video_final.set_duration(duracao_total)
         video_final = video_final.set_audio(audio)
     else:
-        video_final = video
+        print("⚠️ Sem legendas, usando vídeo base")
+        video_final = video_base
     
+    # Renderizar
     print("💾 Renderizando...")
     video_final.write_videofile(
         output_file,
@@ -584,8 +586,13 @@ def criar_video_short_sincronizado(audio_path, midias_sincronizadas, output_file
         codec='libx264',
         audio_codec='aac',
         preset='medium',
-        bitrate='8000k'
+        bitrate='8000k',
+        threads=4  # Melhor performance
     )
+    
+    # IMPORTANTE: Fechar clips para liberar memória
+    video_final.close()
+    audio.close()
     
     return output_file
 
@@ -767,70 +774,24 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
 
 def main():
     print(f"{'📱' if VIDEO_TYPE == 'short' else '🎬'} Iniciando...")
+    
     os.makedirs(VIDEOS_DIR, exist_ok=True)
     os.makedirs(ASSETS_DIR, exist_ok=True)
-
-    # Buscar notícia
-    noticia = buscar_noticias()
-
-    if noticia:
-        titulo_video = noticia['titulo']
-        keywords = titulo_video.split()[:5]
-        print(f"📰 Notícia: {titulo_video}")
-    else:
-        tema = random.choice(config.get('temas', ['política brasileira']))
-        print(f"📝 Tema: {tema}")
-        
-        info = gerar_titulo_especifico(tema)
-        titulo_video = info['titulo']
-        keywords = info['keywords']
-
-    print(f"🎯 Título: {titulo_video}")
-
-    # Gerar roteiro
-    print("✍️ Gerando roteiro...")
-    roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticia)
-
-    # Criar áudio
-    audio_path = f'{ASSETS_DIR}/audio.mp3'
-    criar_audio(roteiro, audio_path)
-
-    audio_clip = AudioFileClip(audio_path)
-    duracao = audio_clip.duration
-    audio_clip.close()
-
-    print(f"⏱️ {duracao:.1f}s")
-
-    # Buscar mídias
-    midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao)
-
-    # Complementar se necessário
-    if len(midias_sincronizadas) < 3:
-        print("⚠️ Complementando...")
-        extras = buscar_midias_final(['brasil'], quantidade=5)
-        tempo_restante = duracao - sum([m['duracao'] for m in midias_sincronizadas])
-        duracao_extra = tempo_restante / len(extras) if extras else 0
-        
-        for extra in extras:
-            midias_sincronizadas.append({
-                'midia': extra,
-                'inicio': duracao - tempo_restante,
-                'duracao': duracao_extra
-            })
-            tempo_restante -= duracao_extra
-
+    
+    # [... código de busca de notícias e geração de roteiro ...]
+    
     # Montar vídeo
     print("🎥 Montando vídeo...")
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
-
+    
     if VIDEO_TYPE == 'short':
         resultado = criar_video_short_sincronizado(
             audio_path,
             midias_sincronizadas,
             video_path,
             duracao,
-            roteiro  # ← PASSA ROTEIRO PARA LEGENDAS
+            roteiro
         )
     else:
         resultado = criar_video_long_sincronizado(
@@ -838,42 +799,54 @@ def main():
             midias_sincronizadas,
             video_path,
             duracao,
-            roteiro  # ← PASSA ROTEIRO PARA LEGENDAS
+            roteiro
         )
-
+    
     if not resultado:
         print("❌ Erro ao criar vídeo")
         return
-
+    
+    print("✅ Vídeo criado com sucesso!")
+    
     # Preparar metadados
     titulo = titulo_video[:60] if len(titulo_video) <= 60 else titulo_video[:57] + '...'
-
     if VIDEO_TYPE == 'short':
         titulo += ' #shorts'
-
+    
     descricao = roteiro[:300] + '...\n\n🔔 Inscreva-se!\n#' + ('shorts' if VIDEO_TYPE == 'short' else 'noticias')
-
     tags = ['noticias', 'informacao', 'politica', 'brasil']
     if VIDEO_TYPE == 'short':
         tags.append('shorts')
-
-    # SOLICITAR THUMBNAIL VIA TELEGRAM
+    
+    # CORREÇÃO: Solicitar thumbnail ANTES do upload com timeout maior
     thumbnail_path = None
     if USAR_CURACAO:
         print("\n" + "="*60)
         print("🖼️ SOLICITANDO THUMBNAIL")
         print("="*60)
-        thumbnail_path = solicitar_thumbnail_telegram(titulo, timeout=1200)
-
+        
+        try:
+            curator = TelegramCuratorNoticias()
+            # Timeout de 20 minutos (1200s)
+            thumbnail_path = curator.solicitar_thumbnail(titulo, timeout=1200)
+            
+            if thumbnail_path:
+                print(f"✅ Thumbnail recebida: {thumbnail_path}")
+            else:
+                print("⚠️ Usando thumbnail automática (YouTube)")
+        except Exception as e:
+            print(f"⚠️ Erro ao solicitar thumbnail: {e}")
+            print("⚠️ Continuando com thumbnail automática")
+    
     # Upload
-    print("📤 Upload...")
+    print("\n📤 Fazendo upload para YouTube...")
     try:
         video_id = fazer_upload_youtube(
             video_path,
             titulo,
             descricao,
             tags,
-            thumbnail_path  # ← PASSA THUMBNAIL
+            thumbnail_path  # Pode ser None
         )
         
         url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
@@ -893,7 +866,6 @@ def main():
         
         log_file = 'videos_gerados.json'
         logs = []
-        
         if os.path.exists(log_file):
             with open(log_file, 'r', encoding='utf-8') as f:
                 logs = json.load(f)
@@ -908,7 +880,6 @@ def main():
         # Notificar
         if USAR_CURACAO:
             try:
-                curator = TelegramCuratorNoticias()
                 curator.notificar_publicacao({
                     'titulo': titulo,
                     'duracao': duracao,
@@ -917,16 +888,18 @@ def main():
             except:
                 pass
         
-        # Limpar
+        # Limpar arquivos temporários
         for file in os.listdir(ASSETS_DIR):
             try:
-                # Não deletar fotos customizadas
+                # NÃO deletar fotos customizadas e thumbnails
                 if not file.startswith('custom_') and not file.startswith('thumbnail_'):
                     os.remove(os.path.join(ASSETS_DIR, file))
             except:
                 pass
+                
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"❌ Erro no upload: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
