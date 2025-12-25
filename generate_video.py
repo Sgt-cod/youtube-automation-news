@@ -345,81 +345,50 @@ def gerar_legendas_do_roteiro(roteiro, duracao_audio):
     return legendas
 
 def criar_clip_legenda(texto, duracao, largura, altura):
-    """Cria um clip de texto animado para legenda - CORRIGIDO BROADCAST"""
+    """Cria um clip de texto animado para legenda - USANDO TEXTCLIP"""
+    from moviepy.video.VideoClip import TextClip
     
-    def make_frame(t):
-        # Criar imagem RGBA
-        img = Image.new('RGBA', (largura, altura), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+    try:
+        # Criar texto com TextClip (mais confiável)
+        clip_texto = TextClip(
+            texto.upper(),
+            fontsize=70 if VIDEO_TYPE == 'short' else 50,
+            color='white',
+            font='Arial-Bold',
+            stroke_color='black',
+            stroke_width=3,
+            method='caption',
+            size=(largura - 100, None)
+        )
         
-        # Carregar fonte
-        try:
-            font_size = 80 if VIDEO_TYPE == 'short' else 60
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 
-                font_size
-            )
-        except:
-            font = ImageFont.load_default()
+        clip_texto = clip_texto.set_duration(duracao)
         
-        # Quebrar texto em linhas
-        palavras = texto.split()
-        linhas = []
-        linha_atual = []
-        
-        for palavra in palavras:
-            teste = ' '.join(linha_atual + [palavra])
-            bbox = draw.textbbox((0, 0), teste, font=font)
-            largura_texto = bbox[2] - bbox[0]
-            
-            if largura_texto < largura - 100:
-                linha_atual.append(palavra)
-            else:
-                if linha_atual:
-                    linhas.append(' '.join(linha_atual))
-                linha_atual = [palavra]
-        
-        if linha_atual:
-            linhas.append(' '.join(linha_atual))
-        
-        # Posição Y
-        y_base = altura - 200 if VIDEO_TYPE == 'short' else altura - 150
+        # Posição
+        y_pos = altura - 250 if VIDEO_TYPE == 'short' else altura - 200
+        clip_texto = clip_texto.set_position(('center', y_pos))
         
         # Animação fade
-        progresso = t / duracao
-        if progresso < 0.1:
-            alpha = int(255 * (progresso / 0.1))
-        elif progresso > 0.9:
-            alpha = int(255 * ((1 - progresso) / 0.1))
-        else:
-            alpha = 255
+        def fade_effect(get_frame, t):
+            frame = get_frame(t)
+            progress = t / duracao
+            
+            if progress < 0.1:
+                alpha = progress / 0.1
+            elif progress > 0.9:
+                alpha = (1 - progress) / 0.1
+            else:
+                alpha = 1.0
+            
+            return (frame * alpha).astype('uint8')
         
-        # Desenhar cada linha
-        for i, linha in enumerate(linhas):
-            bbox = draw.textbbox((0, 0), linha, font=font)
-            largura_texto = bbox[2] - bbox[0]
-            altura_texto = bbox[3] - bbox[1]
-            
-            x = (largura - largura_texto) // 2
-            y = y_base + (i * (altura_texto + 10))
-            
-            # Contorno preto
-            for offset_x in [-3, -2, -1, 0, 1, 2, 3]:
-                for offset_y in [-3, -2, -1, 0, 1, 2, 3]:
-                    if offset_x != 0 or offset_y != 0:
-                        draw.text((x + offset_x, y + offset_y), linha,
-                                font=font, fill=(0, 0, 0, alpha))
-            
-            # Texto branco
-            draw.text((x, y), linha, font=font, fill=(255, 255, 255, alpha))
+        clip_texto = clip_texto.fl(fade_effect)
         
-        # CORREÇÃO: Converter para RGB (sem alpha) e retornar
-        # Isso garante compatibilidade com o vídeo base
-        img_rgb = img.convert('RGB')
-        return np.array(img_rgb)
-    
-    # Criar VideoClip
-    return VideoClip(make_frame, duration=duracao)
+        return clip_texto
+        
+    except Exception as e:
+        print(f"⚠️ Erro TextClip: {e}")
+        # Fallback: retornar clip vazio transparente
+        return ColorClip(size=(largura, altura), color=(0,0,0), duration=duracao).set_opacity(0)
 
 def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     """Analisa roteiro e busca mídias sincronizadas COM CURADORIA"""
