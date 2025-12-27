@@ -356,18 +356,22 @@ def buscar_midias_final(keywords, quantidade=1):
 def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     """Analisa roteiro e busca mídias sincronizadas COM CURADORIA"""
     print("📋 Analisando roteiro...")
+    print(f"   Duração total do áudio: {duracao_audio:.1f}s")
+    print(f"   USAR_CURACAO: {USAR_CURACAO}")
+    print(f"   CURACAO_DISPONIVEL: {CURACAO_DISPONIVEL}")
     
     segmentos = re.split(r'[.!?]\s+', roteiro)
     segmentos = [s.strip() for s in segmentos if len(s.strip()) > 20]
-    print(f"  {len(segmentos)} segmentos")
+    print(f"   {len(segmentos)} segmentos identificados")
     
     palavras_total = len(roteiro.split())
     palavras_por_segundo = palavras_total / duracao_audio
+    print(f"   Ritmo: {palavras_por_segundo:.2f} palavras/segundo")
     
     segmentos_com_tempo = []
     tempo_atual = 0
     
-    for segmento in segmentos:
+    for i, segmento in enumerate(segmentos):
         palavras_segmento = len(segmento.split())
         duracao_segmento = palavras_segmento / palavras_por_segundo
         keywords = extrair_keywords_do_texto(segmento)
@@ -379,12 +383,18 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
             'keywords': keywords
         })
         tempo_atual += duracao_segmento
+        
+        if i < 3:  # Mostrar primeiros 3 segmentos
+            print(f"   Seg {i+1}: {duracao_segmento:.1f}s - '{segmento[:40]}...'")
     
     midias_sincronizadas = []
     
+    print(f"\n🔍 Buscando mídias para {len(segmentos_com_tempo)} segmentos...")
+    
     for i, seg in enumerate(segmentos_com_tempo):
-        print(f"\n🔍 Seg {i+1}: '{seg['texto']}'...")
-        print(f"  Keywords: {seg['keywords']}")
+        print(f"\n   Segmento {i+1}/{len(segmentos_com_tempo)}")
+        print(f"   Texto: '{seg['texto']}'...")
+        print(f"   Keywords: {seg['keywords']}")
         
         midia = buscar_midias_final(seg['keywords'], quantidade=1)
         
@@ -396,30 +406,47 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
                 'texto': seg['texto'],
                 'keywords': seg['keywords']
             })
-            print(f"  ✅ OK")
+            print(f"   ✅ Mídia encontrada")
         else:
-            print(f"  ❌ Sem mídia")
+            print(f"   ❌ Sem mídia")
     
-    print(f"\n✅ Total: {len(midias_sincronizadas)}/{len(segmentos_com_tempo)}")
+    print(f"\n✅ Total de mídias encontradas: {len(midias_sincronizadas)}/{len(segmentos_com_tempo)}")
     
-    # CURADORIA
-    if USAR_CURACAO:
+    # CURADORIA - FORÇAR SEMPRE QUE USAR_CURACAO=True
+    if USAR_CURACAO and CURACAO_DISPONIVEL:
         print("\n" + "="*60)
-        print("🎬 MODO CURADORIA ATIVADO")
+        print("🎬 INICIANDO CURADORIA")
         print("="*60)
+        print(f"   Mídias para curadoria: {len(midias_sincronizadas)}")
+        print(f"   Timeout configurado: {CURACAO_TIMEOUT}s ({CURACAO_TIMEOUT//60}min)")
         
         try:
             curator = TelegramCuratorNoticias()
+            
+            print("   📤 Enviando solicitação ao Telegram...")
             curator.solicitar_curacao(midias_sincronizadas)
+            
+            print(f"   ⏳ Aguardando aprovação (timeout: {CURACAO_TIMEOUT//60}min)...")
             midias_aprovadas = curator.aguardar_aprovacao(timeout=CURACAO_TIMEOUT)
             
             if midias_aprovadas:
-                print("✅ Aprovadas!")
+                print("   ✅ Curadoria aprovada!")
+                print(f"   {len(midias_aprovadas)} mídias aprovadas")
                 midias_sincronizadas = midias_aprovadas
             else:
-                print("⏰ Timeout")
+                print("   ⏰ Timeout na curadoria")
+                print("   ⚠️ Usando mídias originais")
         except Exception as e:
-            print(f"⚠️ Erro: {e}")
+            print(f"   ❌ Erro na curadoria: {e}")
+            import traceback
+            traceback.print_exc()
+            print("   ⚠️ Continuando com mídias originais")
+    else:
+        print("\n⚠️ CURADORIA DESATIVADA")
+        if not USAR_CURACAO:
+            print("   Motivo: USAR_CURACAO=False")
+        if not CURACAO_DISPONIVEL:
+            print("   Motivo: telegram_curator_noticias.py não disponível")
     
     return midias_sincronizadas
 
@@ -614,8 +641,14 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
     
     return output_file
 
-def comprimir_thumbnail(input_path, max_size_mb=2):
-    """Comprime thumbnail para no máximo 2MB mantendo qualidade"""
+def comprimir_thumbnail(input_path, max_size_mb=2, is_short=False):
+    """Comprime thumbnail para no máximo 2MB mantendo qualidade
+    
+    Args:
+        input_path: caminho da imagem original
+        max_size_mb: tamanho máximo em MB
+        is_short: True se for short (9:16), False se for vídeo normal (16:9)
+    """
     print(f"🔍 Verificando tamanho da thumbnail...")
     
     # Verificar tamanho atual
@@ -643,10 +676,19 @@ def comprimir_thumbnail(input_path, max_size_mb=2):
             background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
             img = background
         
-        # Redimensionar se muito grande (YouTube recomenda 1280x720)
-        max_dimension = 1280
-        if img.width > max_dimension or img.height > max_dimension:
-            ratio = min(max_dimension / img.width, max_dimension / img.height)
+        # Redimensionar se muito grande
+        # YouTube Shorts: 720x1280 (9:16)
+        # YouTube Normal: 1280x720 (16:9)
+        if is_short:
+            max_width, max_height = 720, 1280
+            print(f"   📱 Formato Short (9:16)")
+        else:
+            max_width, max_height = 1280, 720
+            print(f"   🖥️ Formato Normal (16:9)")
+        
+        if img.width > max_width or img.height > max_height:
+            # Manter aspect ratio
+            ratio = min(max_width / img.width, max_height / img.height)
             new_size = (int(img.width * ratio), int(img.height * ratio))
             img = img.resize(new_size, Image.LANCZOS)
             print(f"   📏 Redimensionada para: {new_size[0]}x{new_size[1]}")
@@ -676,8 +718,17 @@ def comprimir_thumbnail(input_path, max_size_mb=2):
         print(f"   ❌ Erro ao comprimir: {e}")
         return input_path
 
-def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None):
-    """Faz upload com thumbnail opcional"""
+def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None, is_short=False):
+    """Faz upload com thumbnail opcional
+    
+    Args:
+        video_path: caminho do vídeo
+        titulo: título do vídeo
+        descricao: descrição
+        tags: lista de tags
+        thumbnail_path: caminho da thumbnail (opcional)
+        is_short: True se for short, False se for vídeo normal
+    """
     try:
         creds_dict = json.loads(YOUTUBE_CREDENTIALS)
         credentials = Credentials.from_authorized_user_info(creds_dict)
@@ -710,20 +761,24 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
         if thumbnail_path and os.path.exists(thumbnail_path):
             print("📤 Fazendo upload da thumbnail...")
             try:
-                # Comprimir se necessário
-                thumbnail_final = comprimir_thumbnail(thumbnail_path, max_size_mb=2)
+                # Comprimir se necessário (passa is_short)
+                thumbnail_final = comprimir_thumbnail(thumbnail_path, max_size_mb=2, is_short=is_short)
+                
+                print(f"   📂 Arquivo: {thumbnail_final}")
+                print(f"   📦 Tamanho: {os.path.getsize(thumbnail_final) / (1024 * 1024):.2f}MB")
                 
                 # Fazer upload
                 youtube.thumbnails().set(
                     videoId=video_id,
                     media_body=MediaFileUpload(thumbnail_final)
                 ).execute()
-                print("✅ Thumbnail configurada!")
+                print("✅ Thumbnail configurada no YouTube!")
                 
                 # Limpar arquivo comprimido se foi criado
                 if thumbnail_final != thumbnail_path and os.path.exists(thumbnail_final):
                     try:
                         os.remove(thumbnail_final)
+                        print("   🧹 Arquivo comprimido removido")
                     except:
                         pass
                         
@@ -739,7 +794,19 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
         raise
 
 def main():
-    print(f"{'📱' if VIDEO_TYPE == 'short' else '🎬'} Iniciando...")
+    print("="*60)
+    print(f"{'📱 INICIANDO GERAÇÃO DE SHORT' if VIDEO_TYPE == 'short' else '🎬 INICIANDO GERAÇÃO DE VÍDEO LONGO'}")
+    print("="*60)
+    
+    # Debug de configurações
+    print("\n🔧 CONFIGURAÇÕES:")
+    print(f"   VIDEO_TYPE: {VIDEO_TYPE}")
+    print(f"   USAR_CURACAO: {USAR_CURACAO}")
+    print(f"   CURACAO_DISPONIVEL: {CURACAO_DISPONIVEL}")
+    print(f"   CURACAO_TIMEOUT: {CURACAO_TIMEOUT}s ({CURACAO_TIMEOUT//60}min)")
+    
+    if USAR_CURACAO and not CURACAO_DISPONIVEL:
+        print("\n⚠️ AVISO: USAR_CURACAO=True mas telegram_curator_noticias.py não encontrado!")
     
     os.makedirs(VIDEOS_DIR, exist_ok=True)
     os.makedirs(ASSETS_DIR, exist_ok=True)
@@ -899,12 +966,15 @@ def main():
     # Upload
     print("\n📤 Fazendo upload para YouTube...")
     try:
+        is_short = (VIDEO_TYPE == 'short')
+        
         video_id = fazer_upload_youtube(
             video_path,
             titulo,
             descricao,
             tags,
-            thumbnail_path
+            thumbnail_path,
+            is_short=is_short  # Passa o tipo de vídeo
         )
         
         url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
