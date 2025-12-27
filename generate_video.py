@@ -54,32 +54,62 @@ def buscar_noticias(quantidade=1):
     
     feeds = config.get('rss_feeds', [])
     todas_noticias = []
+    titulos_vistos = set()  # Para evitar duplicatas
     
     # Para vídeos longos, buscar mais notícias
-    noticias_por_feed = 5 if quantidade > 1 else 3
+    noticias_por_feed = 10 if quantidade > 1 else 3
+    
+    print(f"🔍 Buscando notícias de {len(feeds)} feeds RSS...")
     
     for feed_url in feeds[:3]:
         try:
+            print(f"   📡 Feed: {feed_url[:50]}...")
             feed = feedparser.parse(feed_url)
+            
+            noticias_feed = 0
             for entry in feed.entries[:noticias_por_feed]:
-                todas_noticias.append({
-                    'titulo': entry.title,
-                    'resumo': entry.get('summary', entry.title),
-                    'link': entry.link
-                })
-        except:
+                titulo = entry.title.strip()
+                
+                # Verificar se título já foi visto (evitar duplicatas)
+                # Normalizar: remover pontuação extra e minúsculas
+                titulo_normalizado = titulo.lower().strip('.,!?;: ')
+                
+                if titulo_normalizado not in titulos_vistos:
+                    todas_noticias.append({
+                        'titulo': titulo,
+                        'resumo': entry.get('summary', titulo),
+                        'link': entry.link
+                    })
+                    titulos_vistos.add(titulo_normalizado)
+                    noticias_feed += 1
+                else:
+                    print(f"   ⚠️ Notícia duplicada ignorada: {titulo[:50]}...")
+            
+            print(f"   ✅ {noticias_feed} notícias únicas deste feed")
+            
+        except Exception as e:
+            print(f"   ❌ Erro ao buscar feed: {e}")
             continue
     
     if not todas_noticias:
+        print("   ⚠️ Nenhuma notícia encontrada!")
         return None
     
+    print(f"\n✅ Total: {len(todas_noticias)} notícias únicas encontradas")
+    
     # Para short: retorna 1 notícia
-    # Para long: retorna várias notícias
     if quantidade == 1:
         return random.choice(todas_noticias)
-    else:
-        random.shuffle(todas_noticias)
-        return todas_noticias[:quantidade]
+    
+    # Para long: retorna até a quantidade solicitada (sem duplicatas)
+    random.shuffle(todas_noticias)
+    noticias_selecionadas = todas_noticias[:min(quantidade, len(todas_noticias))]
+    
+    print(f"📰 Selecionadas {len(noticias_selecionadas)} notícias para o vídeo:")
+    for i, noticia in enumerate(noticias_selecionadas, 1):
+        print(f"   {i}. {noticia['titulo'][:60]}...")
+    
+    return noticias_selecionadas
 
 def gerar_titulo_especifico(tema):
     """Gera título específico e keywords"""
@@ -757,35 +787,61 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
         response = request.execute()
         video_id = response['id']
         
+        print(f"✅ Vídeo enviado! ID: {video_id}")
+        
         # Upload thumbnail se fornecida
         if thumbnail_path and os.path.exists(thumbnail_path):
-            print("📤 Fazendo upload da thumbnail...")
+            print("\n" + "-"*60)
+            print("📤 PROCESSANDO THUMBNAIL")
+            print("-"*60)
+            print(f"   Caminho: {thumbnail_path}")
+            print(f"   Tipo de vídeo: {'SHORT (9:16)' if is_short else 'NORMAL (16:9)'}")
+            
             try:
                 # Comprimir se necessário (passa is_short)
                 thumbnail_final = comprimir_thumbnail(thumbnail_path, max_size_mb=2, is_short=is_short)
                 
-                print(f"   📂 Arquivo: {thumbnail_final}")
-                print(f"   📦 Tamanho: {os.path.getsize(thumbnail_final) / (1024 * 1024):.2f}MB")
+                if not os.path.exists(thumbnail_final):
+                    raise Exception(f"Arquivo comprimido não existe: {thumbnail_final}")
+                
+                print(f"   📂 Arquivo final: {thumbnail_final}")
+                print(f"   📦 Tamanho final: {os.path.getsize(thumbnail_final) / (1024 * 1024):.2f}MB")
+                
+                # Verificar se é uma imagem válida
+                try:
+                    from PIL import Image
+                    img = Image.open(thumbnail_final)
+                    print(f"   🖼️ Dimensões: {img.size[0]}x{img.size[1]}")
+                    print(f"   🎨 Formato: {img.format}")
+                    img.close()
+                except Exception as e:
+                    print(f"   ⚠️ Aviso: não pôde verificar imagem: {e}")
                 
                 # Fazer upload
+                print(f"   ⬆️ Enviando thumbnail para o YouTube...")
                 youtube.thumbnails().set(
                     videoId=video_id,
                     media_body=MediaFileUpload(thumbnail_final)
                 ).execute()
-                print("✅ Thumbnail configurada no YouTube!")
+                print("   ✅ Thumbnail configurada no YouTube!")
                 
                 # Limpar arquivo comprimido se foi criado
                 if thumbnail_final != thumbnail_path and os.path.exists(thumbnail_final):
                     try:
                         os.remove(thumbnail_final)
-                        print("   🧹 Arquivo comprimido removido")
+                        print("   🧹 Arquivo comprimido temporário removido")
                     except:
                         pass
                         
             except Exception as e:
-                print(f"⚠️ Erro ao fazer upload da thumbnail: {e}")
+                print(f"   ❌ ERRO ao fazer upload da thumbnail: {e}")
                 import traceback
                 traceback.print_exc()
+                print("   ⚠️ Vídeo publicado MAS thumbnail falhou")
+        elif thumbnail_path and not os.path.exists(thumbnail_path):
+            print(f"⚠️ Thumbnail especificada mas arquivo não existe: {thumbnail_path}")
+        else:
+            print("ℹ️ Nenhuma thumbnail customizada - YouTube usará frame automático")
         
         return video_id
         
@@ -828,23 +884,36 @@ def main():
             keywords = info['keywords']
             noticias = None
     else:
-        # Para vídeos longos: múltiplas notícias (5-7)
+        # Para vídeos longos: múltiplas notícias
         duracao_minutos = config.get('duracao_minutos', 10)
-        quantidade_noticias = max(5, min(7, duracao_minutos // 2))  # ~2min por notícia
         
-        noticias = buscar_noticias(quantidade=quantidade_noticias)
+        # Calcular quantas notícias buscar (aproximadamente 2min por notícia)
+        # Mas buscar mais para ter opções e filtrar duplicatas
+        quantidade_desejada = max(5, min(7, duracao_minutos // 2))
+        
+        print(f"\n🔍 Buscando até {quantidade_desejada} notícias únicas...")
+        noticias = buscar_noticias(quantidade=quantidade_desejada)
         
         if noticias and len(noticias) > 1:
-            titulo_video = f"Resumo de Notícias: {datetime.now().strftime('%d/%m/%Y')}"
+            # Ajustar título baseado no número real de notícias
+            data_str = datetime.now().strftime('%d/%m/%Y')
+            titulo_video = f"Resumo de {len(noticias)} Notícias - {data_str}"
             keywords = ['política', 'brasil', 'notícias', 'atualidades']
-            print(f"📰 {len(noticias)} notícias encontradas para vídeo longo")
+            print(f"📰 {len(noticias)} notícias únicas encontradas para vídeo longo")
+            
+            # Ajustar duração esperada baseado no número real de notícias
+            # ~2min por notícia
+            duracao_estimada = len(noticias) * 2
+            print(f"⏱️ Duração estimada: ~{duracao_estimada} minutos")
+            
         elif noticias and len(noticias) == 1:
             titulo_video = noticias[0]['titulo']
             keywords = titulo_video.split()[:5]
             print(f"📰 Notícia única: {titulo_video}")
         else:
+            # Fallback se não encontrar notícias
             tema = random.choice(config.get('temas', ['política brasileira']))
-            print(f"📝 Tema: {tema}")
+            print(f"📝 Sem notícias disponíveis, usando tema: {tema}")
             info = gerar_titulo_especifico(tema)
             titulo_video = info['titulo']
             keywords = info['keywords']
