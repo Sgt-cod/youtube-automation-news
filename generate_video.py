@@ -38,23 +38,30 @@ USAR_CURACAO = os.environ.get('USAR_CURACAO', 'false').lower() == 'true' and CUR
 CURACAO_TIMEOUT = int(os.environ.get('CURACAO_TIMEOUT', '3600'))
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-3-flash-preview')
+model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
     config = json.load(f)
 
-def buscar_noticias():
-    """Busca notícias dos feeds RSS configurados"""
+def buscar_noticias(quantidade=1):
+    """Busca notícias dos feeds RSS configurados
+    
+    Args:
+        quantidade: número de notícias a retornar (1 para short, várias para long)
+    """
     if config.get('tipo') != 'noticias':
         return None
     
     feeds = config.get('rss_feeds', [])
     todas_noticias = []
     
+    # Para vídeos longos, buscar mais notícias
+    noticias_por_feed = 5 if quantidade > 1 else 3
+    
     for feed_url in feeds[:3]:
         try:
             feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:3]:
+            for entry in feed.entries[:noticias_por_feed]:
                 todas_noticias.append({
                     'titulo': entry.title,
                     'resumo': entry.get('summary', entry.title),
@@ -63,7 +70,16 @@ def buscar_noticias():
         except:
             continue
     
-    return random.choice(todas_noticias) if todas_noticias else None
+    if not todas_noticias:
+        return None
+    
+    # Para short: retorna 1 notícia
+    # Para long: retorna várias notícias
+    if quantidade == 1:
+        return random.choice(todas_noticias)
+    else:
+        random.shuffle(todas_noticias)
+        return todas_noticias[:quantidade]
 
 def gerar_titulo_especifico(tema):
     """Gera título específico e keywords"""
@@ -85,8 +101,14 @@ Retorne APENAS JSON: {{"titulo": "título aqui", "keywords": ["palavra1", "palav
     except:
         return {"titulo": tema, "keywords": ["politics", "news", "brazil", "government", "congress"]}
 
-def gerar_roteiro(duracao_alvo, titulo, noticia=None):
-    """Gera roteiro de narração"""
+def gerar_roteiro(duracao_alvo, titulo, noticias=None):
+    """Gera roteiro de narração
+    
+    Args:
+        duracao_alvo: 'short' ou 'long'
+        titulo: título do vídeo
+        noticias: pode ser uma notícia (dict) ou lista de notícias (list) ou None
+    """
     if duracao_alvo == 'short':
         palavras_alvo = 120
         tempo = '30-60 segundos'
@@ -94,7 +116,31 @@ def gerar_roteiro(duracao_alvo, titulo, noticia=None):
         palavras_alvo = config.get('duracao_minutos', 10) * 150
         tempo = f"{config.get('duracao_minutos', 10)} minutos"
     
-    if noticia:
+    # Para vídeo longo com múltiplas notícias
+    if isinstance(noticias, list) and len(noticias) > 1:
+        resumos = "\n\n".join([f"- {n['titulo']}: {n['resumo'][:100]}..." for n in noticias[:5]])
+        
+        prompt = f"""Crie um script JORNALÍSTICO sobre MÚLTIPLAS NOTÍCIAS:
+
+NOTÍCIAS:
+{resumos}
+
+REGRAS:
+- {tempo}, aproximadamente {palavras_alvo} palavras
+- Cubra todas as notícias de forma equilibrada
+- Tom noticioso e informativo
+- Comece com uma introdução contextual
+- Aborde cada notícia em ordem
+- NÃO mencione apresentador ou elementos visuais
+- Texto corrido para narração
+- SEM formatação, asteriscos, marcadores ou emojis
+
+Escreva APENAS o roteiro."""
+    
+    # Para short ou vídeo longo com 1 notícia
+    elif noticias and (isinstance(noticias, dict) or (isinstance(noticias, list) and len(noticias) == 1)):
+        noticia = noticias if isinstance(noticias, dict) else noticias[0]
+        
         prompt = f"""Crie um script JORNALÍSTICO sobre: {titulo}
 
 Resumo: {noticia['resumo']}
@@ -108,6 +154,7 @@ REGRAS:
 - SEM formatação, asteriscos, marcadores ou emojis
 
 Escreva APENAS o roteiro."""
+    
     else:
         prompt = f"""Crie um script sobre: {titulo}
 
@@ -567,6 +614,68 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
     
     return output_file
 
+def comprimir_thumbnail(input_path, max_size_mb=2):
+    """Comprime thumbnail para no máximo 2MB mantendo qualidade"""
+    print(f"🔍 Verificando tamanho da thumbnail...")
+    
+    # Verificar tamanho atual
+    tamanho_atual = os.path.getsize(input_path) / (1024 * 1024)  # MB
+    print(f"   Tamanho atual: {tamanho_atual:.2f}MB")
+    
+    if tamanho_atual <= max_size_mb:
+        print(f"   ✅ Thumbnail OK (menor que {max_size_mb}MB)")
+        return input_path
+    
+    print(f"   ⚠️ Thumbnail muito grande! Comprimindo...")
+    
+    # Criar caminho para thumbnail comprimida
+    output_path = input_path.replace('.jpg', '_compressed.jpg').replace('.png', '_compressed.jpg')
+    
+    try:
+        # Abrir imagem
+        img = Image.open(input_path)
+        
+        # Converter para RGB se necessário (PNG com alpha)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            img = background
+        
+        # Redimensionar se muito grande (YouTube recomenda 1280x720)
+        max_dimension = 1280
+        if img.width > max_dimension or img.height > max_dimension:
+            ratio = min(max_dimension / img.width, max_dimension / img.height)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+            print(f"   📏 Redimensionada para: {new_size[0]}x{new_size[1]}")
+        
+        # Comprimir com qualidade progressiva
+        quality = 95
+        while quality > 60:
+            img.save(output_path, 'JPEG', quality=quality, optimize=True)
+            tamanho_novo = os.path.getsize(output_path) / (1024 * 1024)
+            
+            if tamanho_novo <= max_size_mb:
+                print(f"   ✅ Comprimida: {tamanho_novo:.2f}MB (qualidade {quality})")
+                return output_path
+            
+            quality -= 5
+        
+        # Se ainda muito grande, reduzir mais
+        if tamanho_novo > max_size_mb:
+            img = img.resize((int(img.width * 0.8), int(img.height * 0.8)), Image.LANCZOS)
+            img.save(output_path, 'JPEG', quality=85, optimize=True)
+            tamanho_final = os.path.getsize(output_path) / (1024 * 1024)
+            print(f"   ✅ Compressão forçada: {tamanho_final:.2f}MB")
+        
+        return output_path
+        
+    except Exception as e:
+        print(f"   ❌ Erro ao comprimir: {e}")
+        return input_path
+
 def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None):
     """Faz upload com thumbnail opcional"""
     try:
@@ -601,13 +710,27 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
         if thumbnail_path and os.path.exists(thumbnail_path):
             print("📤 Fazendo upload da thumbnail...")
             try:
+                # Comprimir se necessário
+                thumbnail_final = comprimir_thumbnail(thumbnail_path, max_size_mb=2)
+                
+                # Fazer upload
                 youtube.thumbnails().set(
                     videoId=video_id,
-                    media_body=MediaFileUpload(thumbnail_path)
+                    media_body=MediaFileUpload(thumbnail_final)
                 ).execute()
                 print("✅ Thumbnail configurada!")
+                
+                # Limpar arquivo comprimido se foi criado
+                if thumbnail_final != thumbnail_path and os.path.exists(thumbnail_final):
+                    try:
+                        os.remove(thumbnail_final)
+                    except:
+                        pass
+                        
             except Exception as e:
                 print(f"⚠️ Erro ao fazer upload da thumbnail: {e}")
+                import traceback
+                traceback.print_exc()
         
         return video_id
         
@@ -621,25 +744,52 @@ def main():
     os.makedirs(VIDEOS_DIR, exist_ok=True)
     os.makedirs(ASSETS_DIR, exist_ok=True)
     
-    # Buscar notícia
-    noticia = buscar_noticias()
-    
-    if noticia:
-        titulo_video = noticia['titulo']
-        keywords = titulo_video.split()[:5]
-        print(f"📰 Notícia: {titulo_video}")
+    # Buscar notícia(s) baseado no tipo de vídeo
+    if VIDEO_TYPE == 'short':
+        # Para shorts: 1 notícia apenas
+        noticias = buscar_noticias(quantidade=1)
+        
+        if noticias:
+            titulo_video = noticias['titulo']
+            keywords = titulo_video.split()[:5]
+            print(f"📰 Notícia: {titulo_video}")
+        else:
+            tema = random.choice(config.get('temas', ['política brasileira']))
+            print(f"📝 Tema: {tema}")
+            info = gerar_titulo_especifico(tema)
+            titulo_video = info['titulo']
+            keywords = info['keywords']
+            noticias = None
     else:
-        tema = random.choice(config.get('temas', ['política brasileira']))
-        print(f"📝 Tema: {tema}")
-        info = gerar_titulo_especifico(tema)
-        titulo_video = info['titulo']
-        keywords = info['keywords']
+        # Para vídeos longos: múltiplas notícias (5-7)
+        duracao_minutos = config.get('duracao_minutos', 10)
+        quantidade_noticias = max(5, min(7, duracao_minutos // 2))  # ~2min por notícia
+        
+        noticias = buscar_noticias(quantidade=quantidade_noticias)
+        
+        if noticias and len(noticias) > 1:
+            titulo_video = f"Resumo de Notícias: {datetime.now().strftime('%d/%m/%Y')}"
+            keywords = ['política', 'brasil', 'notícias', 'atualidades']
+            print(f"📰 {len(noticias)} notícias encontradas para vídeo longo")
+        elif noticias and len(noticias) == 1:
+            titulo_video = noticias[0]['titulo']
+            keywords = titulo_video.split()[:5]
+            print(f"📰 Notícia única: {titulo_video}")
+        else:
+            tema = random.choice(config.get('temas', ['política brasileira']))
+            print(f"📝 Tema: {tema}")
+            info = gerar_titulo_especifico(tema)
+            titulo_video = info['titulo']
+            keywords = info['keywords']
+            noticias = None
     
     print(f"🎯 Título: {titulo_video}")
     
-    # Gerar roteiro
+    # Gerar roteiro (agora aceita lista de notícias)
     print("✍️ Gerando roteiro...")
-    roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticia)
+    roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticias)
+    
+    print(f"📝 Roteiro gerado: {len(roteiro.split())} palavras")
     
     # Criar áudio
     audio_path = f'{ASSETS_DIR}/audio.mp3'
@@ -649,28 +799,42 @@ def main():
     duracao = audio_clip.duration
     audio_clip.close()
     
-    print(f"⏱️ {duracao:.1f}s")
+    print(f"⏱️ Duração do áudio: {duracao:.1f}s ({duracao/60:.1f}min)")
     
-    # Buscar mídias
+    # Buscar mídias COM CURADORIA
+    print("\n" + "="*60)
+    print(f"🔍 INICIANDO BUSCA DE MÍDIAS PARA {VIDEO_TYPE.upper()}")
+    print("="*60)
+    
     midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao)
     
+    print(f"\n✅ {len(midias_sincronizadas)} mídias sincronizadas")
+    
     # Complementar se necessário
-    if len(midias_sincronizadas) < 3:
-        print("⚠️ Complementando...")
-        extras = buscar_midias_final(['brasil'], quantidade=5)
+    minimo_midias = 3 if VIDEO_TYPE == 'short' else 8
+    
+    if len(midias_sincronizadas) < minimo_midias:
+        print(f"⚠️ Complementando para mínimo de {minimo_midias}...")
+        extras = buscar_midias_final(['brasil'], quantidade=10)
         tempo_restante = duracao - sum([m['duracao'] for m in midias_sincronizadas])
-        duracao_extra = tempo_restante / len(extras) if extras else 0
+        duracao_extra = tempo_restante / len(extras) if extras and tempo_restante > 0 else 0
         
         for extra in extras:
+            if len(midias_sincronizadas) >= minimo_midias:
+                break
+            
             midias_sincronizadas.append({
                 'midia': extra,
                 'inicio': duracao - tempo_restante,
-                'duracao': duracao_extra
+                'duracao': max(duracao_extra, 3)  # mínimo 3s por mídia
             })
             tempo_restante -= duracao_extra
     
     # Montar vídeo
-    print("🎥 Montando vídeo...")
+    print("\n" + "="*60)
+    print("🎥 MONTANDO VÍDEO")
+    print("="*60)
+    
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
     
