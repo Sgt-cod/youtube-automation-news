@@ -1,10 +1,8 @@
-name: Gerar e Publicar Vídeo
-
+name: Gerar e Publicar Vídeo Longo
 on:
   schedule:
     - cron: '0 10 * * *'
   workflow_dispatch:
-
 jobs:
   gerar-video:
     runs-on: ubuntu-latest
@@ -28,21 +26,14 @@ jobs:
     - name: Instalar dependências Python
       run: |
         pip install --upgrade pip
-        pip install gTTS
-        pip install imageio==2.25.1
-        pip install imageio-ffmpeg
-        pip install moviepy==1.0.3
-        pip install google-generativeai
-        pip install google-api-python-client
-        pip install google-auth
-        pip install requests
-        pip install pillow==9.5.0
+        pip install -r requirements.txt
     
     - name: Gerar vídeo
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+        VIDEO_TYPE: long
       run: python generate_video.py
     
     - name: Commit logs atualizados
@@ -50,12 +41,12 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add videos_gerados.json
-        git diff --quiet && git diff --staged --quiet || git commit -m "🎬 Novo vídeo gerado - $(date +'%Y-%m-%d')"
+        git diff --quiet && git diff --staged --quiet || git commit -m "🎬 Novo vídeo longo gerado - $(date +'%Y-%m-%d')"
         git push
     
     - name: Upload vídeo como artefato
       uses: actions/upload-artifact@v4
       with:
-        name: video-${{ github.run_number }}
+        name: video-long-${{ github.run_number }}
         path: videos/*.mp4
         retention-days: 7
