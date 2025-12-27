@@ -3,7 +3,7 @@ numpy==2.2.0
 aiohttp==3.9.1
 certifi==2023.11.17
 gTTS==2.5.0
-feedparser==6.0.10
+feedparser==6.0.12
 imageio==2.25.1
 imageio-ffmpeg==0.4.9
 moviepy==1.0.3
