@@ -89,18 +89,9 @@ class TelegramCuratorNoticias:
     # ========================================
     
     def solicitar_curacao_temas(self, noticias, timeout=3600):
-        """Solicita curadoria dos temas (notícias) antes de gerar roteiros
-        
-        Args:
-            noticias: lista de notícias para aprovar
-            timeout: tempo máximo de espera em segundos
-        
-        Returns:
-            lista de notícias aprovadas ou None
-        """
+        """Solicita curadoria dos temas (notícias) antes de gerar roteiros"""
         print("📋 Iniciando curadoria de TEMAS...")
         
-        # Salvar dados da curadoria
         curacao_data = {
             'timestamp': datetime.now().isoformat(),
             'noticias': noticias,
@@ -113,7 +104,6 @@ class TelegramCuratorNoticias:
         with open(CURACAO_TEMAS_FILE, 'w', encoding='utf-8') as f:
             json.dump(curacao_data, f, indent=2, ensure_ascii=False)
         
-        # Enviar mensagem inicial
         mensagem_inicial = (
             f"🎬 <b>CURADORIA DE TEMAS - VÍDEO LONGO</b>\n\n"
             f"📰 {len(noticias)} notícias encontradas\n"
@@ -129,12 +119,10 @@ class TelegramCuratorNoticias:
         self.enviar_mensagem(mensagem_inicial)
         time.sleep(2)
         
-        # Enviar primeiro tema
         self._enviar_proximo_tema()
         
         print("✅ Primeiro tema enviado para curadoria")
         
-        # Aguardar aprovação
         return self._aguardar_aprovacao_temas(timeout)
     
     def _enviar_proximo_tema(self):
@@ -148,7 +136,6 @@ class TelegramCuratorNoticias:
         noticias = data['noticias']
         aprovacoes = data['aprovacoes']
         
-        # Encontrar próxima notícia não aprovada
         proximo_indice = None
         for i, noticia in enumerate(noticias):
             if str(i) not in aprovacoes:
@@ -156,7 +143,6 @@ class TelegramCuratorNoticias:
                 break
         
         if proximo_indice is None:
-            # Todas aprovadas
             self._finalizar_curacao_temas()
             return False
         
@@ -164,7 +150,6 @@ class TelegramCuratorNoticias:
         num = proximo_indice + 1
         total = len(noticias)
         
-        # Truncar resumo se muito longo
         resumo = noticia['resumo'][:300] if len(noticia['resumo']) > 300 else noticia['resumo']
         
         mensagem = (
@@ -225,7 +210,6 @@ class TelegramCuratorNoticias:
         while True:
             tempo_decorrido = time.time() - inicio
             
-            # Verificar timeout
             if tempo_decorrido >= timeout:
                 print(f"⏰ Timeout após {tempo_decorrido/60:.1f}min")
                 
@@ -246,14 +230,12 @@ class TelegramCuratorNoticias:
                 
                 return None
             
-            # Log de progresso
             if int(tempo_decorrido) % 60 == 0 and tempo_decorrido != ultima_verificacao:
                 minutos = int(tempo_decorrido / 60)
                 restantes = int((timeout - tempo_decorrido) / 60)
                 print(f"⏱️ {minutos}min | {restantes}min restantes")
                 ultima_verificacao = tempo_decorrido
             
-            # Verificar status
             if os.path.exists(CURACAO_TEMAS_FILE):
                 with open(CURACAO_TEMAS_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -261,12 +243,10 @@ class TelegramCuratorNoticias:
                 if data['status'] == 'aprovado':
                     print("✅ Temas aprovados!")
                     
-                    # Montar lista de notícias aprovadas
                     noticias_aprovadas = []
                     
                     for i, noticia in enumerate(data['noticias']):
                         if str(i) in data['aprovacoes']:
-                            # Verificar se foi substituída
                             if str(i) in data['substituicoes']:
                                 noticias_aprovadas.append(data['substituicoes'][str(i)])
                             else:
@@ -274,7 +254,6 @@ class TelegramCuratorNoticias:
                     
                     print(f"✅ {len(noticias_aprovadas)} temas finais")
                     
-                    # Limpar arquivo
                     try:
                         os.remove(CURACAO_TEMAS_FILE)
                     except:
@@ -287,43 +266,41 @@ class TelegramCuratorNoticias:
                     self.enviar_mensagem("🛑 <b>CURADORIA CANCELADA</b>")
                     sys.exit(1)
             
-            # Processar mensagens
             self._processar_atualizacoes_temas()
             time.sleep(3)
     
     def _processar_atualizacoes_temas(self):
-    """Processa updates do Telegram para curadoria de temas"""
-    url = f"{self.base_url}/getUpdates"
-    params = {
-        'offset': self.update_id_offset,
-        'timeout': 1
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=5)
-        result = response.json()
+        """Processa updates do Telegram para curadoria de temas"""
+        url = f"{self.base_url}/getUpdates"
+        params = {
+            'offset': self.update_id_offset,
+            'timeout': 1
+        }
         
-        if not result.get('ok'):
-            return
-        
-        updates = result.get('result', [])
-        
-        if updates:  # ADICIONAR ESTE LOG
-            print(f"📨 {len(updates)} updates recebidos para temas")
-        
-        for update in updates:
-            self.update_id_offset = update['update_id'] + 1
+        try:
+            response = requests.get(url, params=params, timeout=5)
+            result = response.json()
             
-            # ADICIONAR ESTE LOG
-            if 'callback_query' in update:
-                print(f"   🔔 Callback detectado: {update['callback_query']['data']}")
+            if not result.get('ok'):
+                return
             
-            if 'message' in update:
-                self._processar_mensagem_temas(update['message'])
-            elif 'callback_query' in update:
-                self._processar_callback_temas(update['callback_query'])
-    except Exception as e:
-        print(f"⚠️ Erro ao processar updates de temas: {e}")
+            updates = result.get('result', [])
+            
+            if updates:
+                print(f"📨 {len(updates)} updates recebidos para temas")
+            
+            for update in updates:
+                self.update_id_offset = update['update_id'] + 1
+                
+                if 'callback_query' in update:
+                    print(f"   🔔 Callback detectado: {update['callback_query']['data']}")
+                
+                if 'message' in update:
+                    self._processar_mensagem_temas(update['message'])
+                elif 'callback_query' in update:
+                    self._processar_callback_temas(update['callback_query'])
+        except Exception as e:
+            print(f"⚠️ Erro ao processar updates de temas: {e}")
     
     def _processar_mensagem_temas(self, message):
         """Processa mensagens na curadoria de temas"""
@@ -379,17 +356,14 @@ class TelegramCuratorNoticias:
             self.enviar_mensagem("✅ <b>Todos os temas restantes aprovados!</b>")
         
         elif text.startswith('/substituir_'):
-            # Formato: /substituir_1 Novo título da notícia
             try:
                 partes = text.split(' ', 1)
                 if len(partes) >= 2:
-                    # Extrair número
                     numero_parte = partes[0].replace('/substituir_', '')
                     indice = int(numero_parte) - 1
                     novo_titulo = partes[1].strip()
                     
                     if 0 <= indice < len(data['noticias']):
-                        # Criar nova notícia com título fornecido
                         nova_noticia = {
                             'titulo': novo_titulo,
                             'resumo': f"Tema customizado pelo usuário: {novo_titulo}",
@@ -426,38 +400,37 @@ class TelegramCuratorNoticias:
                 )
     
     def _processar_callback_temas(self, callback):
-    """Processa botões na curadoria de temas"""
-    callback_data = callback['data']
-    callback_id = callback['id']
-    
-    if not os.path.exists(CURACAO_TEMAS_FILE):
-        self._responder_callback(callback_id, "⚠️ Expirado")
-        return
-    
-    with open(CURACAO_TEMAS_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    
-    print(f"🖱️ Botão TEMAS: {callback_data}")
-    
-    # IMPORTANTE: Responder o callback primeiro
-    self._responder_callback(callback_id, "✅ Processando...")
-    
-    try:
-        if callback_data.startswith('tema_aprovar_'):
-            num = int(callback_data.split('_')[2])
-            self._aprovar_tema(data, num)
+        """Processa botões na curadoria de temas"""
+        callback_data = callback['data']
+        callback_id = callback['id']
         
-        elif callback_data.startswith('tema_substituir_'):
-            num = int(callback_data.split('_')[2])
-            self._solicitar_substituicao_tema(data, num)
+        if not os.path.exists(CURACAO_TEMAS_FILE):
+            self._responder_callback(callback_id, "⚠️ Expirado")
+            return
         
-        else:
-            print(f"⚠️ Callback desconhecido: {callback_data}")
+        with open(CURACAO_TEMAS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        print(f"🖱️ Botão TEMAS: {callback_data}")
+        
+        self._responder_callback(callback_id, "✅ Processando...")
+        
+        try:
+            if callback_data.startswith('tema_aprovar_'):
+                num = int(callback_data.split('_')[2])
+                self._aprovar_tema(data, num)
             
-    except Exception as e:
-        print(f"❌ Erro ao processar callback de tema: {e}")
-        import traceback
-        traceback.print_exc()
+            elif callback_data.startswith('tema_substituir_'):
+                num = int(callback_data.split('_')[2])
+                self._solicitar_substituicao_tema(data, num)
+            
+            else:
+                print(f"⚠️ Callback desconhecido: {callback_data}")
+                
+        except Exception as e:
+            print(f"❌ Erro ao processar callback de tema: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _aprovar_tema(self, data, num):
         """Aprova um tema"""
@@ -717,51 +690,47 @@ class TelegramCuratorNoticias:
             pass
     
     def _processar_callback(self, callback):
-    """Processa botões"""
-    callback_data = callback['data']
-    callback_id = callback['id']
-    
-    # Verificar se é callback de temas
-    if callback_data.startswith('tema_'):
-        if os.path.exists(CURACAO_TEMAS_FILE):
-            self._processar_callback_temas(callback)
-        else:
-            self._responder_callback(callback_id, "⚠️ Curadoria de temas expirada")
-        return
-    
-    # Senão, processar callback de mídias
-    if not os.path.exists(CURACAO_FILE):
-        self._responder_callback(callback_id, "⚠️ Expirado")
-        return
-    
-    with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    
-    print(f"🖱️ Botão MÍDIAS: {callback_data}")
-    self._responder_callback(callback_id, "✅ Processando...")
-    
-    if callback_data.startswith('aprovar_'):
-        num = int(callback_data.split('_')[1])
-        self._aprovar_segmento(data, num)
-    
-    elif callback_data.startswith('buscar_'):
-        num = int(callback_data.split('_')[1])
-        self._buscar_nova_midia(data, num)
-    
-    elif callback_data.startswith('foto_'):
-        num = int(callback_data.split('_')[1])
-        self._solicitar_foto(data, num)
+        """Processa botões"""
+        callback_data = callback['data']
+        callback_id = callback['id']
+        
+        if callback_data.startswith('tema_'):
+            if os.path.exists(CURACAO_TEMAS_FILE):
+                self._processar_callback_temas(callback)
+            else:
+                self._responder_callback(callback_id, "⚠️ Curadoria de temas expirada")
+            return
+        
+        if not os.path.exists(CURACAO_FILE):
+            self._responder_callback(callback_id, "⚠️ Expirado")
+            return
+        
+        with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        print(f"🖱️ Botão MÍDIAS: {callback_data}")
+        self._responder_callback(callback_id, "✅ Processando...")
+        
+        if callback_data.startswith('aprovar_'):
+            num = int(callback_data.split('_')[1])
+            self._aprovar_segmento(data, num)
+        
+        elif callback_data.startswith('buscar_'):
+            num = int(callback_data.split('_')[1])
+            self._buscar_nova_midia(data, num)
+        
+        elif callback_data.startswith('foto_'):
+            num = int(callback_data.split('_')[1])
+            self._solicitar_foto(data, num)
     
     def _processar_mensagem(self, message):
         """Processa mensagens"""
         text = message.get('text', '')
         
-        # Verificar se é para curadoria de temas
         if os.path.exists(CURACAO_TEMAS_FILE):
             self._processar_mensagem_temas(message)
             return
         
-        # Senão, processar curadoria de mídias
         if not os.path.exists(CURACAO_FILE):
             if text == '/start':
                 self.enviar_mensagem(
@@ -859,3 +828,316 @@ class TelegramCuratorNoticias:
                 self._processar_thumbnail(message)
             elif os.path.exists(CURACAO_FILE):
                 self._processar_foto_enviada(message)
+    
+    def _processar_foto_enviada(self, message):
+        """Processa foto enviada pelo usuário"""
+        if not os.path.exists(CURACAO_FILE):
+            return
+        
+        with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if not data.get('aguardando_foto'):
+            self.enviar_mensagem("⚠️ Não estou aguardando foto. Use o botão 📤")
+            return
+        
+        idx = data['foto_segmento']
+        total = len(data['segmentos'])
+        num = idx + 1
+        
+        print(f"📸 Foto recebida para segmento {num}")
+        
+        self.enviar_mensagem(f"📥 Baixando sua foto...")
+        
+        try:
+            photo = message['photo'][-1]
+            file_id = photo['file_id']
+            
+            file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
+            file_response = requests.get(file_info_url, timeout=10)
+            file_data = file_response.json()
+            
+            if not file_data.get('ok'):
+                raise Exception("Erro ao obter info do arquivo")
+            
+            file_path = file_data['result']['file_path']
+            download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
+            
+            foto_response = requests.get(download_url, timeout=15)
+            foto_filename = f'{ASSETS_DIR}/custom_{num}.jpg'
+            
+            with open(foto_filename, 'wb') as f:
+                f.write(foto_response.content)
+            
+            print(f"✅ Foto salva: {foto_filename}")
+            
+            seg = data['segmentos'][idx]
+            seg['midia'] = (foto_filename, 'foto_local')
+            seg['customizado'] = True
+            
+            data['segmentos'][idx] = seg
+            data['aprovacoes'][str(idx)] = 'aprovado'
+            
+            if idx + 1 < total:
+                data['segmento_atual'] = idx + 1
+            else:
+                data['segmento_atual'] = total
+            
+            data['aguardando_foto'] = False
+            
+            with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            self.enviar_mensagem(f"✅ <b>Foto customizada aplicada!</b>")
+            
+            time.sleep(2)
+            self._enviar_proximo_segmento()
+            
+        except Exception as e:
+            print(f"❌ Erro ao processar foto: {e}")
+            self.enviar_mensagem(f"❌ Erro ao processar foto: {e}")
+    
+    def _aprovar_segmento(self, data, num):
+        """Aprova segmento"""
+        idx = num - 1
+        total = len(data['segmentos'])
+        
+        print(f"✅ Aprovar {num}/{total}")
+        
+        data['aprovacoes'][str(idx)] = 'aprovado'
+        
+        if idx + 1 < total:
+            data['segmento_atual'] = idx + 1
+        else:
+            data['segmento_atual'] = total
+        
+        with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        self.enviar_mensagem(f"✅ <b>Segmento {num} aprovado!</b>")
+        
+        time.sleep(2)
+        self._enviar_proximo_segmento()
+    
+    def _buscar_nova_midia(self, data, num):
+        """Busca outra imagem da mesma pasta"""
+        idx = num - 1
+        seg = data['segmentos'][idx]
+        
+        print(f"🔄 Buscar nova para {num}")
+        
+        self.enviar_mensagem(f"🔄 Buscando outra imagem...")
+        
+        try:
+            caminho_atual = seg['midia'][0]
+            pasta = os.path.dirname(caminho_atual)
+            
+            arquivos = [f for f in os.listdir(pasta)
+                       if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            
+            nome_atual = os.path.basename(caminho_atual)
+            if nome_atual in arquivos:
+                arquivos.remove(nome_atual)
+            
+            if arquivos:
+                import random
+                nova_foto = random.choice(arquivos)
+                novo_caminho = os.path.join(pasta, nova_foto)
+                
+                seg['midia'] = (novo_caminho, 'foto_local')
+                data['segmentos'][idx] = seg
+                data['segmento_atual'] = idx
+                
+                with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                
+                print(f"✅ Nova imagem encontrada")
+                
+                time.sleep(2)
+                self._enviar_proximo_segmento()
+            else:
+                self.enviar_mensagem("⚠️ Sem mais imagens nesta pasta. Use 📤!")
+        
+        except Exception as e:
+            print(f"❌ Erro: {e}")
+            self.enviar_mensagem(f"❌ Erro. Use 📤 Enviar foto!")
+    
+    def _solicitar_foto(self, data, num):
+        """Solicita foto do usuário"""
+        idx = num - 1
+        
+        print(f"📤 Solicitar foto para {num}")
+        
+        data['aguardando_foto'] = True
+        data['foto_segmento'] = idx
+        
+        with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        self.enviar_mensagem(
+            f"📤 <b>Envie sua foto agora</b>\n\n"
+            f"📱 Escolha uma foto da galeria\n"
+            f"📸 Ou tire uma foto\n\n"
+            f"💡 Será usada no segmento {num}"
+        )
+    
+    def _responder_callback(self, callback_id, texto):
+        """Responde callback"""
+        url = f"{self.base_url}/answerCallbackQuery"
+        
+        try:
+            requests.post(url, json={
+                'callback_query_id': callback_id,
+                'text': texto,
+                'show_alert': False
+            }, timeout=5)
+        except:
+            pass
+    
+    # ========================================
+    # CURADORIA DE THUMBNAIL
+    # ========================================
+    
+    def solicitar_thumbnail(self, titulo, timeout=1200):
+        """Solicita thumbnail customizada"""
+        print("🖼️ Solicitando thumbnail...")
+        
+        thumbnail_file = 'thumbnail_pendente.json'
+        
+        data = {
+            'titulo': titulo,
+            'status': 'aguardando',
+            'thumbnail_path': None,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        with open(thumbnail_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        self.enviar_mensagem(
+            f"🖼️ <b>THUMBNAIL CUSTOMIZADA</b>\n\n"
+            f"📺 <b>Vídeo:</b>\n"
+            f"<i>{titulo}</i>\n\n"
+            f"📤 <b>Envie a imagem AGORA</b>\n\n"
+            f"💡 <b>Recomendações:</b>\n"
+            f"• Resolução: 1280x720 ou superior\n"
+            f"• Formato: JPG ou PNG\n"
+            f"• Texto grande e legível\n"
+            f"• Cores vibrantes\n\n"
+            f"⏱️ Tempo: {timeout//60} minutos\n"
+            f"⏭️ Use /pular para thumbnail automática"
+        )
+        
+        inicio = time.time()
+        ultimo_aviso = 0
+        
+        while time.time() - inicio < timeout:
+            tempo_decorrido = time.time() - inicio
+            
+            if int(tempo_decorrido) // 300 > ultimo_aviso:
+                minutos_restantes = int((timeout - tempo_decorrido) / 60)
+                self.enviar_mensagem(
+                    f"⏳ Ainda aguardando thumbnail...\n"
+                    f"⏰ {minutos_restantes} minutos restantes\n"
+                    f"Use /pular se não quiser enviar"
+                )
+                ultimo_aviso = int(tempo_decorrido) // 300
+            
+            if os.path.exists(thumbnail_file):
+                with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                if data['status'] == 'recebida':
+                    print("✅ Thumbnail recebida!")
+                    thumbnail_path = data['thumbnail_path']
+                    
+                    try:
+                        os.remove(thumbnail_file)
+                    except:
+                        pass
+                    
+                    return thumbnail_path
+                
+                elif data['status'] == 'pulada':
+                    print("⏭️ Thumbnail pulada pelo usuário")
+                    
+                    try:
+                        os.remove(thumbnail_file)
+                    except:
+                        pass
+                    
+                    return None
+            
+            self._processar_atualizacoes()
+            time.sleep(3)
+        
+        print("⏰ Timeout ao aguardar thumbnail")
+        self.enviar_mensagem("⏰ <b>Tempo esgotado</b>\n\nUsando thumbnail automática do YouTube")
+        
+        try:
+            os.remove(thumbnail_file)
+        except:
+            pass
+        
+        return None
+    
+    def _processar_thumbnail(self, message):
+        """Processa thumbnail enviada"""
+        thumbnail_file = 'thumbnail_pendente.json'
+        
+        if not os.path.exists(thumbnail_file):
+            return
+        
+        print("📸 Thumbnail recebida")
+        
+        self.enviar_mensagem("📥 Baixando thumbnail...")
+        
+        try:
+            photo = message['photo'][-1]
+            file_id = photo['file_id']
+            
+            file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
+            file_response = requests.get(file_info_url, timeout=10)
+            file_data = file_response.json()
+            
+            if not file_data.get('ok'):
+                raise Exception("Erro ao obter arquivo")
+            
+            file_path = file_data['result']['file_path']
+            download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
+            
+            foto_response = requests.get(download_url, timeout=15)
+            thumbnail_path = f'{ASSETS_DIR}/thumbnail_custom.jpg'
+            
+            with open(thumbnail_path, 'wb') as f:
+                f.write(foto_response.content)
+            
+            print(f"✅ Thumbnail salva: {thumbnail_path}")
+            
+            with open(thumbnail_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            data['status'] = 'recebida'
+            data['thumbnail_path'] = thumbnail_path
+            
+            with open(thumbnail_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            self.enviar_mensagem("✅ <b>Thumbnail recebida!</b>\n\nContinuando...")
+            
+        except Exception as e:
+            print(f"❌ Erro: {e}")
+            self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
+    
+    def notificar_publicacao(self, video_info):
+        """Notifica publicação"""
+        mensagem = (
+            f"🎉 <b>VÍDEO PUBLICADO!</b>\n\n"
+            f"📺 {video_info['titulo']}\n"
+            f"⏱️ {video_info['duracao']:.1f}s\n"
+            f"🔗 {video_info['url']}\n\n"
+            f"✅ No ar!"
+        )
+        
+        self.enviar_mensagem(mensagem)
+        print("📤 Notificação enviada")
