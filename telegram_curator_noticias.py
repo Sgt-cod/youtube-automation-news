@@ -126,7 +126,6 @@ class TelegramCuratorNoticias:
         return self._aguardar_aprovacao_temas(timeout)
     
     def _enviar_proximo_tema(self):
-    """Envia próximo tema para aprovação"""
     print("🔍 _enviar_proximo_tema() chamado")
     
     if not os.path.exists(CURACAO_TEMAS_FILE):
