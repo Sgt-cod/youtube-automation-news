@@ -38,7 +38,7 @@ USAR_CURACAO = os.environ.get('USAR_CURACAO', 'false').lower() == 'true' and CUR
 CURACAO_TIMEOUT = int(os.environ.get('CURACAO_TIMEOUT', '3600'))
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-3-flash-preview')
+model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -164,8 +164,7 @@ REGRAS IMPORTANTES:
 - Aproximadamente {palavras_por_noticia} palavras (2 minutos de narração)
 - Tom noticioso e informativo
 - Este é o segmento {i+1} de {len(noticias)} notícias
-- {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "COMECE EXATAMENTE COM: 'Bem-vindos ao Canal 55 de Notícias!' e então entre direto na notícia"}
-- {"TERMINE com um CTA: 'Se você gostou, deixe seu like e inscreva-se no canal para mais notícias!'" if i == len(noticias)-1 else "TERMINE o segmento de forma conclusiva para esta notícia específica"}
+- {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "Comece direto na notícia"}
 - NÃO mencione apresentador, elementos visuais ou "vamos para"
 - Texto corrido para narração
 - SEM formatação, asteriscos, marcadores ou emojis
@@ -647,19 +646,83 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
     return output_file
 
 def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file, duracao_total):
-    """Cria vídeo longo SEM legendas - VERSÃO SIMPLIFICADA"""
+    """Cria vídeo longo SEM legendas - COM VÍDEO DE ABERTURA"""
     print(f"📹 Criando vídeo longo (sem legendas)...")
+    
+    # VERIFICAR SE EXISTE VÍDEO DE ABERTURA
+    video_abertura_path = f'{ASSETS_DIR}/abertura.mp4'
+    tem_abertura = os.path.exists(video_abertura_path)
+    
+    if tem_abertura:
+        print(f"🎬 Vídeo de abertura encontrado: {video_abertura_path}")
+    else:
+        print(f"⚠️ Vídeo de abertura não encontrado em {video_abertura_path}")
+        print(f"   Para adicionar abertura, coloque um vídeo em: {video_abertura_path}")
     
     clips_imagem = []
     tempo_coberto = 0
     
+    # ADICIONAR VÍDEO DE ABERTURA NO INÍCIO (se existir)
+    if tem_abertura:
+        try:
+            print("📽️ Processando vídeo de abertura...")
+            clip_abertura = VideoFileClip(video_abertura_path)
+            
+            # Redimensionar para 1920x1080 mantendo aspecto
+            if clip_abertura.size != (1920, 1080):
+                print(f"   Redimensionando de {clip_abertura.size} para 1920x1080")
+                clip_abertura = clip_abertura.resize(height=1080)
+                
+                if clip_abertura.w > 1920:
+                    clip_abertura = clip_abertura.crop(x_center=clip_abertura.w/2, width=1920, height=1080)
+                elif clip_abertura.w < 1920:
+                    # Adicionar barras laterais pretas
+                    clip_abertura = clip_abertura.margin(
+                        left=(1920-clip_abertura.w)//2,
+                        right=(1920-clip_abertura.w)//2,
+                        color=(0,0,0)
+                    )
+            
+            # Garantir que tem áudio (mesmo que silêncio)
+            if clip_abertura.audio is None:
+                print("   ⚠️ Abertura sem áudio, adicionando silêncio")
+                from moviepy.audio.AudioClip import AudioClip
+                audio_silencio = AudioClip(lambda t: [0, 0], duration=clip_abertura.duration, fps=44100)
+                clip_abertura = clip_abertura.set_audio(audio_silencio)
+            
+            duracao_abertura = clip_abertura.duration
+            print(f"   ✅ Abertura: {duracao_abertura:.1f}s")
+            
+            # Adicionar no início (tempo 0)
+            clip_abertura = clip_abertura.set_start(0)
+            clips_imagem.append(clip_abertura)
+            
+            tempo_coberto = duracao_abertura
+            
+            print(f"   🎬 Vídeo de abertura adicionado ({duracao_abertura:.1f}s)")
+            
+        except Exception as e:
+            print(f"   ❌ Erro ao processar abertura: {e}")
+            import traceback
+            traceback.print_exc()
+            tem_abertura = False
+            tempo_coberto = 0
+    
+    # ADICIONAR CLIPS DE IMAGEM (começando após a abertura)
+    print(f"\n📸 Adicionando {len(midias_sincronizadas)} mídias...")
+    
     for i, item in enumerate(midias_sincronizadas):
         midia_info, midia_tipo = item['midia']
-        inicio = item['inicio']
+        inicio_original = item['inicio']
         duracao_clip = item['duracao']
+        
+        # AJUSTAR TEMPO: somar duração da abertura
+        inicio_ajustado = inicio_original + (tempo_coberto if tem_abertura else 0)
         
         try:
             if midia_tipo == 'foto_local' and os.path.exists(midia_info):
+                print(f"   📷 Mídia {i+1}: {os.path.basename(midia_info)} (início: {inicio_ajustado:.1f}s)")
+                
                 clip = ImageClip(midia_info, duration=duracao_clip)
                 
                 # Resize para 1920x1080 (16:9)
@@ -672,19 +735,25 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
                 if clip.size != (1920, 1080):
                     clip = clip.resize((1920, 1080))
                 
+                # Animação zoom suave
                 clip = clip.resize(lambda t: 1 + 0.03 * (t / duracao_clip))
-                clip = clip.set_start(inicio)
+                
+                # Definir início ajustado
+                clip = clip.set_start(inicio_ajustado)
                 
                 clips_imagem.append(clip)
-                tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
+                tempo_coberto = max(tempo_coberto, inicio_ajustado + duracao_clip)
                 
         except Exception as e:
-            print(f"⚠️ Erro {i}: {e}")
+            print(f"   ⚠️ Erro mídia {i}: {e}")
     
-    # Preencher lacunas
-    if tempo_coberto < duracao_total:
+    # Preencher lacunas se necessário
+    duracao_total_com_abertura = duracao_total + (tempo_coberto if tem_abertura else 0)
+    
+    if tempo_coberto < duracao_total_com_abertura:
+        print(f"\n⚠️ Preenchendo {duracao_total_com_abertura - tempo_coberto:.1f}s")
         extras = buscar_midias_final(['brasil'], quantidade=5)
-        duracao_restante = duracao_total - tempo_coberto
+        duracao_restante = duracao_total_com_abertura - tempo_coberto
         duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
         
         for idx, (midia_info, midia_tipo) in enumerate(extras):
@@ -707,16 +776,44 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
                 continue
     
     if not clips_imagem:
+        print("❌ Nenhum clip criado!")
         return None
     
+    # COMPOR VÍDEO
+    print(f"\n🎬 Compondo vídeo...")
+    print(f"   Total de clips: {len(clips_imagem)}")
+    print(f"   Duração total: {tempo_coberto:.1f}s ({tempo_coberto/60:.1f}min)")
+    
     video_base = CompositeVideoClip(clips_imagem, size=(1920, 1080))
-    video_base = video_base.set_duration(duracao_total)
+    video_base = video_base.set_duration(tempo_coberto)
     
+    # ADICIONAR ÁUDIO
+    print("🎵 Adicionando áudio...")
     audio = AudioFileClip(audio_path)
-    video_final = video_base.set_audio(audio)
     
-    print("💾 Renderizando...")
-    video_final.write_videofile(
+    # Se tem abertura, criar silêncio no início do áudio
+    if tem_abertura:
+        print(f"   🔇 Adicionando {duracao_abertura:.1f}s de silêncio no início do áudio")
+        from moviepy.audio.AudioClip import AudioClip
+        
+        # Criar silêncio
+        audio_silencio = AudioClip(lambda t: [0, 0], duration=duracao_abertura, fps=44100)
+        
+        # Concatenar: silêncio + áudio original
+        from moviepy.audio.AudioClip import concatenate_audioclips
+        audio_final = concatenate_audioclips([audio_silencio, audio])
+        
+        video_base = video_base.set_audio(audio_final)
+    else:
+        video_base = video_base.set_audio(audio)
+    
+    # RENDERIZAR
+    print("\n💾 Renderizando vídeo final...")
+    print(f"   Resolução: 1920x1080")
+    print(f"   FPS: 24")
+    print(f"   Duração: {tempo_coberto:.1f}s")
+    
+    video_base.write_videofile(
         output_file,
         fps=24,
         codec='libx264',
@@ -726,11 +823,14 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
         threads=4
     )
     
-    video_final.close()
+    # LIMPAR
+    print("🧹 Limpando memória...")
+    video_base.close()
     audio.close()
     for clip in clips_imagem:
         clip.close()
     
+    print("✅ Vídeo longo criado com sucesso!")
     return output_file
 
 def comprimir_thumbnail(input_path, max_size_mb=2, is_short=False):
