@@ -38,7 +38,7 @@ USAR_CURACAO = os.environ.get('USAR_CURACAO', 'false').lower() == 'true' and CUR
 CURACAO_TIMEOUT = int(os.environ.get('CURACAO_TIMEOUT', '3600'))
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.0-flash-exp')
+model = genai.GenerativeModel('gemini-3-flash-preview')
 
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -131,44 +131,105 @@ Retorne APENAS JSON: {{"titulo": "título aqui", "keywords": ["palavra1", "palav
     except:
         return {"titulo": tema, "keywords": ["politics", "news", "brazil", "government", "congress"]}
 
-def gerar_roteiro(duracao_alvo, titulo, noticias=None):
-    """Gera roteiro de narração
+def gerar_roteiro_segmentado(noticias, duracao_por_noticia=120):
+    """Gera roteiro segmentado para vídeo longo com múltiplas notícias
     
     Args:
-        duracao_alvo: 'short' ou 'long'
-        titulo: título do vídeo
-        noticias: pode ser uma notícia (dict) ou lista de notícias (list) ou None
-    """
-    if duracao_alvo == 'short':
-        palavras_alvo = 120
-        tempo = '30-60 segundos'
-    else:
-        palavras_alvo = config.get('duracao_minutos', 10) * 150
-        tempo = f"{config.get('duracao_minutos', 10)} minutos"
+        noticias: lista de notícias aprovadas
+        duracao_por_noticia: segundos por notícia (~2 minutos = 120s)
     
-    # Para vídeo longo com múltiplas notícias
-    if isinstance(noticias, list) and len(noticias) > 1:
-        resumos = "\n\n".join([f"- {n['titulo']}: {n['resumo'][:100]}..." for n in noticias[:5]])
+    Returns:
+        dict com roteiros individuais e roteiro completo
+    """
+    print(f"\n✍️ Gerando roteiros segmentados...")
+    print(f"   {len(noticias)} notícias aprovadas")
+    print(f"   ~{duracao_por_noticia}s por notícia")
+    
+    palavras_por_segundo = 2.5  # velocidade média de fala
+    palavras_por_noticia = int(duracao_por_noticia * palavras_por_segundo)
+    
+    roteiros_individuais = []
+    segmentos_tempo = []
+    tempo_atual = 0
+    
+    for i, noticia in enumerate(noticias):
+        print(f"\n   📝 Gerando roteiro {i+1}/{len(noticias)}: {noticia['titulo'][:50]}...")
         
-        prompt = f"""Crie um script JORNALÍSTICO sobre MÚLTIPLAS NOTÍCIAS:
+        prompt = f"""Crie um script JORNALÍSTICO sobre esta notícia:
 
-NOTÍCIAS:
-{resumos}
+TÍTULO: {noticia['titulo']}
+RESUMO: {noticia['resumo']}
 
-REGRAS:
-- {tempo}, aproximadamente {palavras_alvo} palavras
-- Cubra todas as notícias de forma equilibrada
+REGRAS IMPORTANTES:
+- Aproximadamente {palavras_por_noticia} palavras (2 minutos de narração)
 - Tom noticioso e informativo
-- Comece com uma introdução contextual
-- Aborde cada notícia em ordem
-- NÃO mencione apresentador ou elementos visuais
+- Este é o segmento {i+1} de {len(noticias)} notícias
+- {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "Comece direto na notícia"}
+- NÃO mencione apresentador, elementos visuais ou "vamos para"
 - Texto corrido para narração
 - SEM formatação, asteriscos, marcadores ou emojis
+- TERMINE o segmento de forma conclusiva para esta notícia específica
 
-Escreva APENAS o roteiro."""
+Escreva APENAS o roteiro deste segmento."""
+
+        try:
+            response = model.generate_content(prompt)
+            roteiro = response.text
+            
+            # Limpeza
+            roteiro = re.sub(r'\*+', '', roteiro)
+            roteiro = re.sub(r'#+\s', '', roteiro)
+            roteiro = re.sub(r'^-\s', '', roteiro, flags=re.MULTILINE)
+            roteiro = roteiro.replace('*', '').replace('#', '').replace('_', '').strip()
+            
+            palavras = len(roteiro.split())
+            duracao_estimada = palavras / palavras_por_segundo
+            
+            roteiros_individuais.append({
+                'noticia': noticia,
+                'roteiro': roteiro,
+                'palavras': palavras,
+                'duracao_estimada': duracao_estimada,
+                'inicio': tempo_atual,
+                'fim': tempo_atual + duracao_estimada
+            })
+            
+            tempo_atual += duracao_estimada
+            print(f"   ✅ {palavras} palavras (~{duracao_estimada:.1f}s)")
+            
+        except Exception as e:
+            print(f"   ❌ Erro: {e}")
+            continue
     
-    # Para short ou vídeo longo com 1 notícia
-    elif noticias and (isinstance(noticias, dict) or (isinstance(noticias, list) and len(noticias) == 1)):
+    # Juntar todos os roteiros
+    roteiro_completo = "\n\n".join([r['roteiro'] for r in roteiros_individuais])
+    
+    print(f"\n✅ Roteiro completo gerado:")
+    print(f"   {len(roteiros_individuais)} segmentos")
+    print(f"   {len(roteiro_completo.split())} palavras totais")
+    print(f"   ~{tempo_atual:.1f}s (~{tempo_atual/60:.1f}min)")
+    
+    return {
+        'segmentos': roteiros_individuais,
+        'roteiro_completo': roteiro_completo,
+        'duracao_total_estimada': tempo_atual
+    }
+def gerar_roteiro(duracao_alvo, titulo, noticias=None):
+    """Gera roteiro de narração APENAS PARA SHORTS
+    
+    Args:
+        duracao_alvo: 'short' apenas (long usa gerar_roteiro_segmentado)
+        titulo: título do vídeo
+        noticias: notícia única para o short
+    """
+    if duracao_alvo != 'short':
+        raise Exception("Use gerar_roteiro_segmentado() para vídeos longos")
+    
+    palavras_alvo = 120
+    tempo = '30-60 segundos'
+    
+    # Para short com 1 notícia
+    if noticias and (isinstance(noticias, dict) or (isinstance(noticias, list) and len(noticias) == 1)):
         noticia = noticias if isinstance(noticias, dict) else noticias[0]
         
         prompt = f"""Crie um script JORNALÍSTICO sobre: {titulo}
@@ -921,21 +982,94 @@ def main():
     
     print(f"🎯 Título: {titulo_video}")
     
-    # Gerar roteiro (agora aceita lista de notícias)
-    print("✍️ Gerando roteiro...")
-    roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticias)
+    # ==========================================
+    # FLUXO DIFERENCIADO: SHORT vs LONG
+    # ==========================================
     
-    print(f"📝 Roteiro gerado: {len(roteiro.split())} palavras")
+    if VIDEO_TYPE == 'short':
+        # ===== FLUXO PARA SHORTS =====
+        print("\n" + "="*60)
+        print("📱 FLUXO DE SHORTS (SEM CURADORIA DE TEMAS)")
+        print("="*60)
+        
+        # Gerar roteiro
+        print("\n✍️ Gerando roteiro...")
+        roteiro = gerar_roteiro(VIDEO_TYPE, titulo_video, noticias)
+        print(f"📝 Roteiro gerado: {len(roteiro.split())} palavras")
+        
+        # Criar áudio
+        audio_path = f'{ASSETS_DIR}/audio.mp3'
+        criar_audio(roteiro, audio_path)
+        
+        audio_clip = AudioFileClip(audio_path)
+        duracao = audio_clip.duration
+        audio_clip.close()
+        print(f"⏱️ Duração do áudio: {duracao:.1f}s")
+        
+    else:
+        # ===== FLUXO PARA VÍDEOS LONGOS =====
+        print("\n" + "="*60)
+        print("🎬 FLUXO DE VÍDEOS LONGOS (COM CURADORIA DE TEMAS)")
+        print("="*60)
+        
+        if not noticias or len(noticias) < 1:
+            print("❌ Erro: Nenhuma notícia disponível para vídeo longo")
+            return
+        
+        # CURADORIA DE TEMAS via Telegram
+        if USAR_CURACAO and CURACAO_DISPONIVEL:
+            print("\n🎯 INICIANDO CURADORIA DE TEMAS...")
+            
+            try:
+                curator = TelegramCuratorNoticias()
+                
+                # Solicitar aprovação dos temas (notícias)
+                noticias_aprovadas = curator.solicitar_curacao_temas(
+                    noticias, 
+                    timeout=CURACAO_TIMEOUT
+                )
+                
+                if noticias_aprovadas and len(noticias_aprovadas) > 0:
+                    print(f"✅ {len(noticias_aprovadas)} temas aprovados")
+                    noticias = noticias_aprovadas
+                else:
+                    print("⏰ Timeout ou cancelamento na curadoria de temas")
+                    print("⚠️ Usando temas originais")
+                    
+            except Exception as e:
+                print(f"❌ Erro na curadoria de temas: {e}")
+                import traceback
+                traceback.print_exc()
+                print("⚠️ Continuando com temas originais")
+        else:
+            print("⚠️ Curadoria desativada - usando temas sem aprovação")
+        
+        # Gerar roteiros segmentados
+        print("\n✍️ Gerando roteiros segmentados...")
+        resultado_roteiros = gerar_roteiro_segmentado(noticias, duracao_por_noticia=120)
+        
+        roteiro = resultado_roteiros['roteiro_completo']
+        segmentos_roteiro = resultado_roteiros['segmentos']
+        duracao_estimada = resultado_roteiros['duracao_total_estimada']
+        
+        print(f"\n📝 Roteiro completo:")
+        print(f"   {len(roteiro.split())} palavras")
+        print(f"   {len(segmentos_roteiro)} segmentos")
+        print(f"   ~{duracao_estimada:.1f}s (~{duracao_estimada/60:.1f}min) estimados")
+        
+        # Criar áudio do roteiro completo
+        audio_path = f'{ASSETS_DIR}/audio.mp3'
+        criar_audio(roteiro, audio_path)
+        
+        audio_clip = AudioFileClip(audio_path)
+        duracao = audio_clip.duration
+        audio_clip.close()
+        
+        print(f"⏱️ Duração real do áudio: {duracao:.1f}s ({duracao/60:.1f}min)")
     
-    # Criar áudio
-    audio_path = f'{ASSETS_DIR}/audio.mp3'
-    criar_audio(roteiro, audio_path)
-    
-    audio_clip = AudioFileClip(audio_path)
-    duracao = audio_clip.duration
-    audio_clip.close()
-    
-    print(f"⏱️ Duração do áudio: {duracao:.1f}s ({duracao/60:.1f}min)")
+    # ==========================================
+    # CONTINUA IGUAL PARA AMBOS
+    # ==========================================
     
     # Buscar mídias COM CURADORIA
     print("\n" + "="*60)
