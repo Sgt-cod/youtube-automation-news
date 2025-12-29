@@ -164,7 +164,8 @@ REGRAS IMPORTANTES:
 - Aproximadamente {palavras_por_noticia} palavras (2 minutos de narração)
 - Tom noticioso e informativo
 - Este é o segmento {i+1} de {len(noticias)} notícias
-- {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "Comece direto na notícia"}
+- {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "COMECE EXATAMENTE COM: 'Bem-vindos ao Canal 55 de Notícias!' e então entre direto na notícia"}
+- {"TERMINE com um CTA: 'Se você gostou, deixe seu like e inscreva-se no canal para mais notícias!'" if i == len(noticias)-1 else "TERMINE o segmento de forma conclusiva para esta notícia específica"}
 - NÃO mencione apresentador, elementos visuais ou "vamos para"
 - Texto corrido para narração
 - SEM formatação, asteriscos, marcadores ou emojis
