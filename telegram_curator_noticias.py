@@ -138,7 +138,7 @@ class TelegramCuratorNoticias:
                 data = json.load(f)
             
             print(f"📂 Dados carregados: {len(data['noticias'])} notícias")
-            print(f"📊 Aprovações: {data['aprovacoes']}")
+            
             
             noticias = data['noticias']
             aprovacoes = data['aprovacoes']
@@ -161,11 +161,18 @@ class TelegramCuratorNoticias:
             print(f"📤 Preparando tema {num}/{total}")
             print(f"   Título: {noticia['titulo'][:50]}...")
             
-            resumo = noticia['resumo'][:300] if len(noticia['resumo']) > 300 else noticia['resumo']
+            import re
+            resumo = noticia.get('resumo', noticia['titulo'])
+
+            resumo = re.sub(r'<[^>]+>', '', resumo)
+
+            resumo = resumo[:300] if len(resumo) > 300 else resumo
+
+            titulo = re.sub(r'<[^>]+>', '', noticia['titulo'])
             
             mensagem = (
                 f"📌 <b>Tema {num}/{total}</b>\n\n"
-                f"📰 <b>{noticia['titulo']}</b>\n\n"
+                f"📰 <b>{titulo}</b>\n\n"
                 f"📝 <i>{resumo}...</i>\n\n"
                 f"<b>Este tema será usado no vídeo?</b>"
             )
@@ -187,7 +194,6 @@ class TelegramCuratorNoticias:
                 return True
             else:
                 print(f"❌ Falha ao enviar tema {num}/{total}")
-                print(f"   Mensagem tinha {len(mensagem)} caracteres")
                 return False
                 
         except Exception as e:
