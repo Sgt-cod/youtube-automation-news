@@ -127,80 +127,51 @@ class TelegramCuratorNoticias:
     
     def _enviar_proximo_tema(self):
         """Envia próximo tema para aprovação"""
-        print("🔍 _enviar_proximo_tema() chamado")
-        
         if not os.path.exists(CURACAO_TEMAS_FILE):
-            print("❌ Arquivo de curadoria não existe!")
             return False
         
-        try:
-            with open(CURACAO_TEMAS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            print(f"📂 Dados carregados: {len(data['noticias'])} notícias")
-            
-            
-            noticias = data['noticias']
-            aprovacoes = data['aprovacoes']
-            
-            proximo_indice = None
-            for i, noticia in enumerate(noticias):
-                if str(i) not in aprovacoes:
-                    proximo_indice = i
-                    break
-            
-            if proximo_indice is None:
-                print("✅ Todas as notícias já foram aprovadas")
-                self._finalizar_curacao_temas()
-                return False
-            
-            noticia = noticias[proximo_indice]
-            num = proximo_indice + 1
-            total = len(noticias)
-            
-            print(f"📤 Preparando tema {num}/{total}")
-            print(f"   Título: {noticia['titulo'][:50]}...")
-            
-            import re
-            resumo = noticia.get('resumo', noticia['titulo'])
-
-            resumo = re.sub(r'<[^>]+>', '', resumo)
-
-            resumo = resumo[:300] if len(resumo) > 300 else resumo
-
-            titulo = re.sub(r'<[^>]+>', '', noticia['titulo'])
-            
-            mensagem = (
-                f"📌 <b>Tema {num}/{total}</b>\n\n"
-                f"📰 <b>{titulo}</b>\n\n"
-                f"📝 <i>{resumo}...</i>\n\n"
-                f"<b>Este tema será usado no vídeo?</b>"
-            )
-            
-            keyboard = {
-                'inline_keyboard': [
-                    [
-                        {'text': '✅ Aprovar', 'callback_data': f'tema_aprovar_{num}'},
-                        {'text': '🔄 Substituir', 'callback_data': f'tema_substituir_{num}'}
-                    ]
-                ]
-            }
-            
-            print(f"📨 Enviando mensagem com botões...")
-            resultado = self.enviar_mensagem(mensagem, keyboard)
-            
-            if resultado:
-                print(f"✅ Tema {num}/{total} enviado com sucesso!")
-                return True
-            else:
-                print(f"❌ Falha ao enviar tema {num}/{total}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ ERRO em _enviar_proximo_tema(): {e}")
-            import traceback
-            traceback.print_exc()
+        with open(CURACAO_TEMAS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        noticias = data['noticias']
+        aprovacoes = data['aprovacoes']
+        
+        proximo_indice = None
+        for i, noticia in enumerate(noticias):
+            if str(i) not in aprovacoes:
+                proximo_indice = i
+                break
+        
+        if proximo_indice is None:
+            self._finalizar_curacao_temas()
             return False
+        
+        noticia = noticias[proximo_indice]
+        num = proximo_indice + 1
+        total = len(noticias)
+        
+        resumo = noticia['resumo'][:300] if len(noticia['resumo']) > 300 else noticia['resumo']
+        
+        mensagem = (
+            f"📌 <b>Tema {num}/{total}</b>\n\n"
+            f"📰 <b>{noticia['titulo']}</b>\n\n"
+            f"📝 <i>{resumo}...</i>\n\n"
+            f"<b>Este tema será usado no vídeo?</b>"
+        )
+        
+        keyboard = {
+            'inline_keyboard': [
+                [
+                    {'text': '✅ Aprovar', 'callback_data': f'tema_aprovar_{num}'},
+                    {'text': '🔄 Substituir', 'callback_data': f'tema_substituir_{num}'}
+                ]
+            ]
+        }
+        
+        print(f"📤 Enviando tema {num}/{total} para aprovação...")
+        self.enviar_mensagem(mensagem, keyboard)
+        
+        return True
     
     def _finalizar_curacao_temas(self):
         """Finaliza curadoria de temas"""
