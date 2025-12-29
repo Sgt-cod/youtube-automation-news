@@ -292,31 +292,38 @@ class TelegramCuratorNoticias:
             time.sleep(3)
     
     def _processar_atualizacoes_temas(self):
-        """Processa updates do Telegram para curadoria de temas"""
-        url = f"{self.base_url}/getUpdates"
-        params = {
-            'offset': self.update_id_offset,
-            'timeout': 1
-        }
+    """Processa updates do Telegram para curadoria de temas"""
+    url = f"{self.base_url}/getUpdates"
+    params = {
+        'offset': self.update_id_offset,
+        'timeout': 1
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=5)
+        result = response.json()
         
-        try:
-            response = requests.get(url, params=params, timeout=5)
-            result = response.json()
+        if not result.get('ok'):
+            return
+        
+        updates = result.get('result', [])
+        
+        if updates:  # ADICIONAR ESTE LOG
+            print(f"📨 {len(updates)} updates recebidos para temas")
+        
+        for update in updates:
+            self.update_id_offset = update['update_id'] + 1
             
-            if not result.get('ok'):
-                return
+            # ADICIONAR ESTE LOG
+            if 'callback_query' in update:
+                print(f"   🔔 Callback detectado: {update['callback_query']['data']}")
             
-            updates = result.get('result', [])
-            
-            for update in updates:
-                self.update_id_offset = update['update_id'] + 1
-                
-                if 'message' in update:
-                    self._processar_mensagem_temas(update['message'])
-                elif 'callback_query' in update:
-                    self._processar_callback_temas(update['callback_query'])
-        except:
-            pass
+            if 'message' in update:
+                self._processar_mensagem_temas(update['message'])
+            elif 'callback_query' in update:
+                self._processar_callback_temas(update['callback_query'])
+    except Exception as e:
+        print(f"⚠️ Erro ao processar updates de temas: {e}")
     
     def _processar_mensagem_temas(self, message):
         """Processa mensagens na curadoria de temas"""
@@ -419,20 +426,23 @@ class TelegramCuratorNoticias:
                 )
     
     def _processar_callback_temas(self, callback):
-        """Processa botões na curadoria de temas"""
-        callback_data = callback['data']
-        callback_id = callback['id']
-        
-        if not os.path.exists(CURACAO_TEMAS_FILE):
-            self._responder_callback(callback_id, "⚠️ Expirado")
-            return
-        
-        with open(CURACAO_TEMAS_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        print(f"🖱️ Botão: {callback_data}")
-        self._responder_callback(callback_id, "✅ Processando...")
-        
+    """Processa botões na curadoria de temas"""
+    callback_data = callback['data']
+    callback_id = callback['id']
+    
+    if not os.path.exists(CURACAO_TEMAS_FILE):
+        self._responder_callback(callback_id, "⚠️ Expirado")
+        return
+    
+    with open(CURACAO_TEMAS_FILE, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    print(f"🖱️ Botão TEMAS: {callback_data}")
+    
+    # IMPORTANTE: Responder o callback primeiro
+    self._responder_callback(callback_id, "✅ Processando...")
+    
+    try:
         if callback_data.startswith('tema_aprovar_'):
             num = int(callback_data.split('_')[2])
             self._aprovar_tema(data, num)
@@ -440,6 +450,14 @@ class TelegramCuratorNoticias:
         elif callback_data.startswith('tema_substituir_'):
             num = int(callback_data.split('_')[2])
             self._solicitar_substituicao_tema(data, num)
+        
+        else:
+            print(f"⚠️ Callback desconhecido: {callback_data}")
+            
+    except Exception as e:
+        print(f"❌ Erro ao processar callback de tema: {e}")
+        import traceback
+        traceback.print_exc()
     
     def _aprovar_tema(self, data, num):
         """Aprova um tema"""
@@ -697,6 +715,42 @@ class TelegramCuratorNoticias:
                     self._processar_callback(update['callback_query'])
         except:
             pass
+    
+    def _processar_callback(self, callback):
+    """Processa botões"""
+    callback_data = callback['data']
+    callback_id = callback['id']
+    
+    # Verificar se é callback de temas
+    if callback_data.startswith('tema_'):
+        if os.path.exists(CURACAO_TEMAS_FILE):
+            self._processar_callback_temas(callback)
+        else:
+            self._responder_callback(callback_id, "⚠️ Curadoria de temas expirada")
+        return
+    
+    # Senão, processar callback de mídias
+    if not os.path.exists(CURACAO_FILE):
+        self._responder_callback(callback_id, "⚠️ Expirado")
+        return
+    
+    with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    print(f"🖱️ Botão MÍDIAS: {callback_data}")
+    self._responder_callback(callback_id, "✅ Processando...")
+    
+    if callback_data.startswith('aprovar_'):
+        num = int(callback_data.split('_')[1])
+        self._aprovar_segmento(data, num)
+    
+    elif callback_data.startswith('buscar_'):
+        num = int(callback_data.split('_')[1])
+        self._buscar_nova_midia(data, num)
+    
+    elif callback_data.startswith('foto_'):
+        num = int(callback_data.split('_')[1])
+        self._solicitar_foto(data, num)
     
     def _processar_mensagem(self, message):
         """Processa mensagens"""
