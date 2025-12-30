@@ -92,9 +92,23 @@ class TelegramCuratorNoticias:
         """Solicita curadoria dos temas (notícias) antes de gerar roteiros"""
         print("📋 Iniciando curadoria de TEMAS...")
         
+        # Limpar HTML de todas as notícias ANTES de salvar
+        import re
+        noticias_limpas = []
+        
+        for noticia in noticias:
+            noticia_limpa = {
+                'titulo': re.sub(r'<[^>]*>', '', noticia.get('titulo', '')).strip(),
+                'resumo': re.sub(r'<[^>]*>', '', noticia.get('resumo', '')).strip(),
+                'link': noticia.get('link', '')
+            }
+            noticias_limpas.append(noticia_limpa)
+        
+        print(f"   ✅ {len(noticias_limpas)} notícias com HTML limpo")
+        
         curacao_data = {
             'timestamp': datetime.now().isoformat(),
-            'noticias': noticias,
+            'noticias': noticias_limpas,  # Salvar notícias já limpas
             'status': 'aguardando',
             'aprovacoes': {},
             'rejeicoes': [],
@@ -104,19 +118,37 @@ class TelegramCuratorNoticias:
         with open(CURACAO_TEMAS_FILE, 'w', encoding='utf-8') as f:
             json.dump(curacao_data, f, indent=2, ensure_ascii=False)
         
+        # Mensagem inicial SEM formatação HTML
         mensagem_inicial = (
-            f"🎬 <b>CURADORIA DE TEMAS - VÍDEO LONGO</b>\n\n"
-            f"📰 {len(noticias)} notícias encontradas\n"
+            f"🎬 CURADORIA DE TEMAS - VÍDEO LONGO\n\n"
+            f"📰 {len(noticias_limpas)} notícias encontradas\n"
             f"⏰ {datetime.now().strftime('%H:%M:%S')}\n\n"
-            f"<b>Vou enviar cada tema para você aprovar ou substituir.</b>\n\n"
-            f"<b>Comandos:</b>\n"
-            f"• <b>/aprovar_tudo</b> - Aprovar todos os temas restantes\n"
-            f"• <b>/cancelar</b> - Cancelar curadoria\n"
-            f"• <b>/status</b> - Ver progresso\n\n"
+            f"Vou enviar cada tema para você aprovar ou substituir.\n\n"
+            f"Comandos:\n"
+            f"• /aprovar_tudo - Aprovar todos os temas restantes\n"
+            f"• /cancelar - Cancelar curadoria\n"
+            f"• /status - Ver progresso\n\n"
             f"⏳ Aguardo {timeout//60}min"
         )
         
-        self.enviar_mensagem(mensagem_inicial)
+        # Enviar SEM parse_mode HTML
+        url = f"{self.base_url}/sendMessage"
+        data = {
+            'chat_id': self.chat_id,
+            'text': mensagem_inicial
+        }
+        
+        try:
+            response = requests.post(url, json=data, timeout=10)
+            result = response.json()
+            
+            if result.get('ok'):
+                print("   ✅ Mensagem inicial enviada")
+            else:
+                print(f"   ⚠️ Erro ao enviar mensagem inicial: {result}")
+        except Exception as e:
+            print(f"   ⚠️ Erro ao enviar mensagem inicial: {e}")
+        
         time.sleep(2)
         
         self._enviar_proximo_tema()
