@@ -1346,5 +1346,57 @@ def main():
         traceback.print_exc()
         raise
 
+    # Upload no YouTube
+video_id = fazer_upload_youtube(
+    video_path,
+    titulo,
+    descricao,
+    tags,
+    thumbnail_path
+)
+
+url_youtube = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
+print(f"✅ YouTube: {url_youtube}")
+
+# UPLOAD NO TIKTOK
+url_tiktok = None
+if PUBLICAR_TIKTOK:
+    print("\n📱 Publicando no TikTok...")
+    try:
+        # Preparar hashtags para TikTok
+        hashtags_tiktok = ['noticias', 'brasil', 'politica', 'informacao']
+        if VIDEO_TYPE == 'short':
+            hashtags_tiktok.append('viral')
+        
+        resultado_tiktok = fazer_upload_tiktok(
+            video_path,
+            titulo.replace('#shorts', '').strip(),  # Remover #shorts
+            descricao[:500],  # TikTok prefere descrições mais curtas
+            hashtags_tiktok
+        )
+        
+        if resultado_tiktok:
+            url_tiktok = f"https://www.tiktok.com/@seu_usuario/video/{resultado_tiktok['video_id']}"
+            print(f"✅ TikTok: {url_tiktok}")
+        else:
+            print("⚠️ Falha ao publicar no TikTok")
+            
+    except Exception as e:
+        print(f"❌ Erro TikTok: {e}")
+
+# Atualizar log
+log_entry = {
+    'data': datetime.now().isoformat(),
+    'tipo': VIDEO_TYPE,
+    'tema': titulo_video,
+    'titulo': titulo,
+    'duracao': duracao,
+    'video_id': video_id,
+    'url_youtube': url_youtube,
+    'url_tiktok': url_tiktok,  # NOVO
+    'com_legendas': True,
+    'com_thumbnail_custom': thumbnail_path is not None
+}
+
 if __name__ == '__main__':
     main()
