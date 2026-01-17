@@ -16,6 +16,16 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from PIL import Image
 
+# Importar TikTok uploader
+try:
+    from tiktok_uploader import fazer_upload_tiktok
+    TIKTOK_DISPONIVEL = True
+except ImportError:
+    print("⚠️ tiktok_uploader.py não encontrado")
+    TIKTOK_DISPONIVEL = False
+
+PUBLICAR_TIKTOK = os.environ.get('PUBLICAR_TIKTOK', 'false').lower() == 'true' and TIKTOK_DISPONIVEL
+
 # Importar curadoria
 try:
     from telegram_curator_noticias import TelegramCuratorNoticias
