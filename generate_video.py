@@ -1268,73 +1268,100 @@ def main():
             print("⚠️ Continuando com thumbnail automática")
     
     # Upload
-    print("\n📤 Fazendo upload para YouTube...")
-    try:
-        is_short = (VIDEO_TYPE == 'short')
+    # Upload no YouTube
+print("\n📤 Fazendo upload para YouTube...")
+try:
+    video_id = fazer_upload_youtube(
+        video_path,
+        titulo,
+        descricao,
+        tags,
+        thumbnail_path
+    )
+    
+    url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
+    
+    # Log
+    log_entry = {
+        'data': datetime.now().isoformat(),
+        'tipo': VIDEO_TYPE,
+        'tema': titulo_video,
+        'titulo': titulo,
+        'duracao': duracao,
+        'video_id': video_id,
+        'url': url,
+        'com_legendas': True,
+        'com_thumbnail_custom': thumbnail_path is not None
+    }
+    
+    log_file = 'videos_gerados.json'
+    logs = []
+    if os.path.exists(log_file):
+        with open(log_file, 'r', encoding='utf-8') as f:
+            logs = json.load(f)
+    
+    logs.append(log_entry)
+    
+    with open(log_file, 'w', encoding='utf-8') as f:
+        json.dump(logs, f, indent=2, ensure_ascii=False)
+    
+    print(f"✅ Publicado!\n🔗 {url}")
+    
+    # ============================================
+    # NOVO: ENVIAR VÍDEO PARA TELEGRAM
+    # ============================================
+    if USAR_CURACAO:
+        print("\n" + "="*60)
+        print("📱 ENVIANDO VÍDEO PARA TELEGRAM")
+        print("="*60)
         
-        video_id = fazer_upload_youtube(
-            video_path,
-            titulo,
-            descricao,
-            tags,
-            thumbnail_path,
-            is_short=is_short  # Passa o tipo de vídeo
-        )
-        
-        url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
-        
-        # Log
-        log_entry = {
-            'data': datetime.now().isoformat(),
-            'tipo': VIDEO_TYPE,
-            'tema': titulo_video,
-            'titulo': titulo,
-            'duracao': duracao,
-            'video_id': video_id,
-            'url': url,
-            'com_legendas': False,
-            'com_thumbnail_custom': thumbnail_path is not None
-        }
-        
-        log_file = 'videos_gerados.json'
-        logs = []
-        
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
-                logs = json.load(f)
-        
-        logs.append(log_entry)
-        
-        with open(log_file, 'w', encoding='utf-8') as f:
-            json.dump(logs, f, indent=2, ensure_ascii=False)
-        
-        print(f"✅ Publicado!\n🔗 {url}")
-        
-        # Notificar
-        if USAR_CURACAO:
-            try:
-                curator = TelegramCuratorNoticias()
-                curator.notificar_publicacao({
-                    'titulo': titulo,
-                    'duracao': duracao,
-                    'url': url
-                })
-            except:
-                pass
-        
-        # Limpar
-        for file in os.listdir(ASSETS_DIR):
-            try:
-                if not file.startswith('custom_') and not file.startswith('thumbnail_'):
-                    os.remove(os.path.join(ASSETS_DIR, file))
-            except:
-                pass
+        try:
+            curator = TelegramCuratorNoticias()
+            
+            # Enviar vídeo + metadados
+            sucesso = curator.enviar_video_publicado(
+                video_path=video_path,
+                titulo=titulo,
+                descricao=descricao,
+                tags=tags,
+                url_youtube=url
+            )
+            
+            if sucesso:
+                print("✅ Vídeo enviado para o Telegram!")
+            else:
+                print("⚠️ Vídeo não enviado (verifique o Telegram)")
                 
-    except Exception as e:
-        print(f"❌ Erro no upload: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+        except Exception as e:
+            print(f"⚠️ Erro ao enviar para Telegram: {e}")
+    
+    # ============================================
+    # FIM DO ENVIO PARA TELEGRAM
+    # ============================================
+    
+    # Limpar arquivos temporários
+    print("\n🧹 Limpando arquivos temporários...")
+    for file in os.listdir(ASSETS_DIR):
+        try:
+            # NÃO deletar fotos customizadas e thumbnails
+            if not file.startswith('custom_') and not file.startswith('thumbnail_'):
+                file_path = os.path.join(ASSETS_DIR, file)
+                os.remove(file_path)
+                print(f"  🗑️ Deletado: {file}")
+        except Exception as e:
+            print(f"  ⚠️ Erro ao deletar {file}: {e}")
+    
+    # NÃO deletar o vídeo ainda - será deletado automaticamente pelo GitHub após alguns dias
+    # O vídeo fica disponível nos Artifacts do GitHub Actions
+    print(f"\n💾 Vídeo mantido: {video_path}")
+    print("📦 Disponível nos GitHub Actions Artifacts por 7 dias")
+        
+except Exception as e:
+    print(f"❌ Erro no upload: {e}")
+    import traceback
+    traceback.print_exc()
+    raise
+
 
 if __name__ == '__main__':
     main()
