@@ -1162,114 +1162,103 @@ class TelegramCuratorNoticias:
             self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
     
     def enviar_video_publicado(self, video_path, titulo, descricao, tags, url_youtube):
-    """
-    Envia vídeo completo + metadados para o Telegram após publicação
-    
-    Args:
-        video_path: Caminho do arquivo de vídeo
-        titulo: Título do vídeo
-        descricao: Descrição completa
-        tags: Lista de tags
-        url_youtube: URL do vídeo no YouTube
-    """
-    print("\n📤 Enviando vídeo para Telegram...")
-    
-    if not os.path.exists(video_path):
-        print(f"❌ Vídeo não encontrado: {video_path}")
-        return False
-    
-    try:
-        # Preparar caption com todas as informações
-        tags_str = ", ".join(tags) if isinstance(tags, list) else tags
+        """
+        Envia vídeo completo + metadados para o Telegram após publicação
+        """
+        print("\n📤 Enviando vídeo para Telegram...")
         
-        caption = (
-            f"🎬 <b>VÍDEO PUBLICADO</b>\n\n"
-            f"📺 <b>Título:</b>\n{titulo}\n\n"
-            f"📝 <b>Descrição:</b>\n{descricao[:200]}...\n\n"
-            f"🏷️ <b>Tags:</b>\n{tags_str}\n\n"
-            f"🔗 <b>YouTube:</b>\n{url_youtube}\n\n"
-            f"💾 Arquivo MP4 em anexo para publicação no TikTok"
-        )
+        if not os.path.exists(video_path):
+            print(f"❌ Vídeo não encontrado: {video_path}")
+            return False
         
-        # Enviar vídeo
-        url = f"{self.base_url}/sendVideo"
-        
-        with open(video_path, 'rb') as video_file:
-            files = {'video': video_file}
-            data = {
-                'chat_id': self.chat_id,
-                'caption': caption,
-                'parse_mode': 'HTML',
-                'supports_streaming': True
-            }
+        try:
+            # Preparar caption
+            tags_str = ", ".join(tags) if isinstance(tags, list) else tags
             
-            print(f"  📹 Enviando vídeo: {os.path.basename(video_path)}")
-            print(f"  📦 Tamanho: {os.path.getsize(video_path) / (1024*1024):.1f} MB")
+            caption = (
+                f"🎬 <b>VÍDEO PUBLICADO</b>\n\n"
+                f"📺 <b>Título:</b>\n{titulo}\n\n"
+                f"📝 <b>Descrição:</b>\n{descricao[:200]}...\n\n"
+                f"🏷️ <b>Tags:</b>\n{tags_str}\n\n"
+                f"🔗 <b>YouTube:</b>\n{url_youtube}\n\n"
+                f"💾 Arquivo MP4 em anexo para publicação no TikTok"
+            )
             
-            response = requests.post(url, files=files, data=data, timeout=300)
-            result = response.json()
+            # Enviar vídeo
+            url = f"{self.base_url}/sendVideo"
             
-            if result.get('ok'):
-                print("✅ Vídeo enviado com sucesso!")
+            with open(video_path, 'rb') as video_file:
+                files = {'video': video_file}
+                data = {
+                    'chat_id': self.chat_id,
+                    'caption': caption,
+                    'parse_mode': 'HTML',
+                    'supports_streaming': True
+                }
                 
-                # Enviar mensagem separada com descrição completa (caso seja longa)
-                if len(descricao) > 200:
-                    self.enviar_mensagem(
-                        f"📄 <b>Descrição Completa:</b>\n\n{descricao}"
-                    )
+                print(f"  📹 Enviando vídeo: {os.path.basename(video_path)}")
+                print(f"  📦 Tamanho: {os.path.getsize(video_path) / (1024*1024):.1f} MB")
                 
-                return True
-            else:
-                print(f"⚠️ Erro ao enviar vídeo: {result}")
+                response = requests.post(url, files=files, data=data, timeout=300)
+                result = response.json()
                 
-                # Se o vídeo for muito grande, enviar como documento
-                if 'file is too big' in str(result).lower():
-                    print("  ⚠️ Vídeo muito grande, tentando como documento...")
-                    return self._enviar_video_como_documento(video_path, caption)
-                
-                return False
-                
-    except Exception as e:
-        print(f"❌ Erro ao enviar vídeo: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Tentar enviar apenas os metadados
-        print("  💾 Enviando apenas metadados...")
-        self.enviar_mensagem(
-            f"⚠️ <b>Erro ao enviar vídeo (muito grande)</b>\n\n"
-            f"{caption}\n\n"
-            f"📁 Vídeo disponível no GitHub Actions artifacts"
-        )
-        return False
-
-def _enviar_video_como_documento(self, video_path, caption):
-    """Envia vídeo como documento (para arquivos grandes)"""
-    url = f"{self.base_url}/sendDocument"
+                if result.get('ok'):
+                    print("✅ Vídeo enviado com sucesso!")
+                    
+                    if len(descricao) > 200:
+                        self.enviar_mensagem(
+                            f"📄 <b>Descrição Completa:</b>\n\n{descricao}"
+                        )
+                    
+                    return True
+                else:
+                    print(f"⚠️ Erro ao enviar vídeo: {result}")
+                    
+                    if 'file is too big' in str(result).lower():
+                        print("  ⚠️ Vídeo muito grande, tentando como documento...")
+                        return self._enviar_video_como_documento(video_path, caption)
+                    
+                    return False
+                    
+        except Exception as e:
+            print(f"❌ Erro ao enviar vídeo: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            self.enviar_mensagem(
+                f"⚠️ <b>Erro ao enviar vídeo (muito grande)</b>\n\n"
+                f"{caption}\n\n"
+                f"📁 Vídeo disponível no GitHub Actions artifacts"
+            )
+            return False
     
-    try:
-        with open(video_path, 'rb') as video_file:
-            files = {'document': video_file}
-            data = {
-                'chat_id': self.chat_id,
-                'caption': caption[:1024],  # Telegram limita caption em documentos
-                'parse_mode': 'HTML'
-            }
-            
-            print("  📎 Enviando como documento...")
-            response = requests.post(url, files=files, data=data, timeout=300)
-            result = response.json()
-            
-            if result.get('ok'):
-                print("✅ Vídeo enviado como documento!")
-                return True
-            else:
-                print(f"❌ Falha: {result}")
-                return False
+    def _enviar_video_como_documento(self, video_path, caption):
+        """Envia vídeo como documento (para arquivos grandes)"""
+        url = f"{self.base_url}/sendDocument"
+        
+        try:
+            with open(video_path, 'rb') as video_file:
+                files = {'document': video_file}
+                data = {
+                    'chat_id': self.chat_id,
+                    'caption': caption[:1024],
+                    'parse_mode': 'HTML'
+                }
                 
-    except Exception as e:
-        print(f"❌ Erro: {e}")
-        return False
+                print("  📎 Enviando como documento...")
+                response = requests.post(url, files=files, data=data, timeout=300)
+                result = response.json()
+                
+                if result.get('ok'):
+                    print("✅ Vídeo enviado como documento!")
+                    return True
+                else:
+                    print(f"❌ Falha: {result}")
+                    return False
+                    
+        except Exception as e:
+            print(f"❌ Erro: {e}")
+            return False
     
     def notificar_publicacao(self, video_info):
         """Notifica publicação"""
@@ -1280,6 +1269,5 @@ def _enviar_video_como_documento(self, video_path, caption):
             f"🔗 {video_info['url']}\n\n"
             f"✅ No ar!"
         )
-        
         self.enviar_mensagem(mensagem)
         print("📤 Notificação enviada")
