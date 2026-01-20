@@ -864,39 +864,75 @@ def main():
             try:
                 curator = TelegramCuratorNoticias()
                 
-                sucesso = curator.enviar_video_publicado(
-                    video_path=video_path,
-                    titulo=titulo,
-                    descricao=descricao,
-                    tags=tags,
-                    url_youtube=url
-                )
+                # Verificar tamanho do vídeo
+                tamanho_mb = os.path.getsize(video_path) / (1024 * 1024)
+                print(f"   📦 Tamanho do vídeo: {tamanho_mb:.2f} MB")
                 
-                if sucesso:
-                    print("✅ Vídeo enviado!")
+                if tamanho_mb <= 50:
+                    # Vídeo pequeno: enviar arquivo direto
+                    print("   📤 Vídeo pequeno - enviando arquivo...")
+                    
+                    sucesso = curator.enviar_video_publicado(
+                        video_path=video_path,
+                        titulo=titulo,
+                        descricao=descricao,
+                        tags=tags,
+                        url_youtube=url
+                    )
+                    
+                    if sucesso:
+                        print("✅ Vídeo enviado!")
+                    else:
+                        print("⚠️ Falha ao enviar vídeo")
                 else:
-                    print("⚠️ Vídeo não enviado")
+                    # Vídeo grande: criar release e enviar link
+                    print("   📦 Vídeo grande - criando release...")
+                    
+                    # Importar função de criar release
+                    from create_release import criar_release_com_video
+                    
+                    download_url = criar_release_com_video(
+                        video_path=video_path,
+                        titulo=titulo,
+                        descricao=descricao
+                    )
+                    
+                    if download_url:
+                        print("   ✅ Release criada!")
+                        print(f"   🔗 {download_url}")
+                        
+                        # Enviar link via Telegram
+                        sucesso = curator.enviar_link_download(
+                            download_url=download_url,
+                            titulo=titulo,
+                            descricao=descricao,
+                            tags=tags,
+                            url_youtube=url,
+                            duracao=duracao,
+                            tamanho_mb=tamanho_mb
+                        )
+                        
+                        if sucesso:
+                            print("✅ Link enviado!")
+                        else:
+                            print("⚠️ Falha ao enviar link")
+                    else:
+                        print("❌ Erro ao criar release")
+                        print("   Tentando enviar só metadados...")
+                        
+                        # Fallback: enviar só informações
+                        curator.enviar_mensagem(
+                            f"⚠️ <b>Vídeo muito grande ({tamanho_mb:.2f} MB)</b>\n\n"
+                            f"📺 {titulo}\n\n"
+                            f"🔗 YouTube: {url}\n\n"
+                            f"📁 Vídeo disponível no GitHub Actions Artifacts"
+                        )
                     
             except Exception as e:
-                print(f"⚠️ Erro Telegram: {e}")
-        
-        # Limpar
-        print("\n🧹 Limpando...")
-        for file in os.listdir(ASSETS_DIR):
-            try:
-                if not file.startswith('custom_') and not file.startswith('thumbnail_'):
-                    os.remove(os.path.join(ASSETS_DIR, file))
-            except:
-                pass
-        
-        print(f"\n💾 Vídeo: {video_path}")
-        print("📦 Disponível nos Artifacts por 7 dias")
-            
-    except Exception as e:
-        print(f"❌ Erro upload: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+                print(f"⚠️ Erro ao processar envio: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
 
 if __name__ == '__main__':
     main()
