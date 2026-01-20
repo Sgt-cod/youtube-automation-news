@@ -157,6 +157,58 @@ class TelegramCuratorNoticias:
         
         return self._aguardar_aprovacao_temas(timeout)
     
+    def enviar_link_download(self, download_url, titulo, descricao, tags, url_youtube, duracao, tamanho_mb):
+    """
+    Envia link de download do vídeo via Telegram (para vídeos grandes)
+    
+    Args:
+        download_url: URL de download do GitHub Release
+        titulo: título do vídeo
+        descricao: descrição
+        tags: lista de tags
+        url_youtube: URL do vídeo no YouTube
+        duracao: duração em segundos
+        tamanho_mb: tamanho do arquivo em MB
+    """
+    print("\n📤 Enviando link de download para Telegram...")
+    
+    try:
+        tags_str = ", ".join(tags) if isinstance(tags, list) else tags
+        
+        mensagem = (
+            f"🎬 <b>VÍDEO PUBLICADO</b>\n\n"
+            f"📺 <b>Título:</b>\n{titulo}\n\n"
+            f"📝 <b>Descrição:</b>\n{descricao[:200]}...\n\n"
+            f"🏷️ <b>Tags:</b>\n{tags_str}\n\n"
+            f"⏱️ <b>Duração:</b> {int(duracao)}s ({duracao/60:.1f}min)\n"
+            f"📦 <b>Tamanho:</b> {tamanho_mb:.2f} MB\n\n"
+            f"🔗 <b>YouTube:</b>\n{url_youtube}\n\n"
+            f"⬇️ <b>DOWNLOAD DO VÍDEO:</b>\n{download_url}\n\n"
+            f"💡 Clique no link acima para baixar o MP4 e postar no TikTok"
+        )
+        
+        resultado = self.enviar_mensagem(mensagem)
+        
+        if resultado:
+            print("✅ Link de download enviado!")
+            
+            # Enviar descrição completa se for muito longa
+            if len(descricao) > 200:
+                self.enviar_mensagem(
+                    f"📄 <b>Descrição Completa:</b>\n\n{descricao}"
+                )
+            
+            return True
+        else:
+            print("❌ Falha ao enviar link")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Erro ao enviar link: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
     def _enviar_proximo_tema(self):
         """Envia próximo tema para aprovação"""
         if not os.path.exists(CURACAO_TEMAS_FILE):
