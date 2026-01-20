@@ -1202,10 +1202,8 @@ def main():
             tempo_restante -= duracao_extra
     
     # Montar vídeo
-    print("\n" + "="*60)
-    print("🎥 MONTANDO VÍDEO")
-    print("="*60)
     
+    print("🎥 MONTANDO VÍDEO")
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
     
