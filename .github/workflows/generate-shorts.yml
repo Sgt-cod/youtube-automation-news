@@ -68,13 +68,13 @@ jobs:
           name: short-${{ github.run_number }}
           path: videos/*.mp4
           retention-days: 7
-```
+"""
 
 ### **Passo 5: Fazer o mesmo para `generate.yml`**
 
 Atualize também `.github/workflows/generate.yml` com as mesmas permissões e variáveis.
 
----
+"""
 
 ## ✅ **Como vai funcionar:**
 
@@ -87,10 +87,10 @@ Atualize também `.github/workflows/generate.yml` com as mesmas permissões e va
    - Envia link de download pelo Telegram 🔗
    - Você clica no link e baixa direto
 
----
+"""
 
 ## 📱 **Mensagem que você receberá (vídeos grandes):**
-```
+"""
 🎬 VÍDEO PUBLICADO
 
 📺 Título:
