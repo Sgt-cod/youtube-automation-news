@@ -948,7 +948,6 @@ if USAR_CURACAO:
         print(f"⚠️ Erro ao processar envio: {e}")
         import traceback
         traceback.print_exc()
-        raise
 
 if __name__ == '__main__':
     main()
