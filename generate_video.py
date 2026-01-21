@@ -4,6 +4,7 @@ import random
 import re
 import asyncio
 import time
+import sys
 from datetime import datetime
 import requests
 import feedparser
@@ -243,7 +244,7 @@ Escreva APENAS o roteiro."""
 
 async def criar_audio_async(texto, output_file):
     """Cria áudio com Edge TTS (async)"""
-    voz = config.get('voz', 'pt-BR-ThalitaMultilingualNeural')
+    voz = config.get('voz', 'pt-BR-FranciscaNeural')
     
     for tentativa in range(3):
         try:
@@ -882,8 +883,13 @@ def main():
             
                     if sucesso:
                         print("✅ Vídeo enviado diretamente!")
+                        print("\n" + "="*60)
+                        print("✅ WORKFLOW CONCLUÍDO COM SUCESSO!")
+                        print("="*60)
+                        sys.exit(0)  # Finalizar workflow com sucesso
                     else:
                         print("⚠️ Falha ao enviar vídeo")
+                        sys.exit(1)  # Finalizar com erro
                 
                 else:
                     # Vídeo grande: criar release e enviar link
