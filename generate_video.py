@@ -856,98 +856,98 @@ def main():
         print(f"✅ Publicado!\n🔗 {url}")
         
         # ENVIAR VÍDEO PARA TELEGRAM
-if USAR_CURACAO:
-    print("\n" + "="*60)
-    print("📱 ENVIANDO PARA TELEGRAM")
-    print("="*60)
+        if USAR_CURACAO:
+            print("\n" + "="*60)
+            print("📱 ENVIANDO PARA TELEGRAM")
+            print("="*60)
     
-    try:
-        curator = TelegramCuratorNoticias()
+            try:
+                curator = TelegramCuratorNoticias()
         
-        # Verificar tamanho do vídeo
-        tamanho_mb = os.path.getsize(video_path) / (1024 * 1024)
-        print(f"   📦 Tamanho do vídeo: {tamanho_mb:.2f} MB")
+                # Verificar tamanho do vídeo
+                tamanho_mb = os.path.getsize(video_path) / (1024 * 1024)
+                print(f"   📦 Tamanho do vídeo: {tamanho_mb:.2f} MB")
         
-        if tamanho_mb <= 50:
-            # Vídeo pequeno: enviar arquivo direto
-            print("   📤 Vídeo ≤ 50 MB - enviando arquivo direto...")
+                if tamanho_mb <= 50:
+                    # Vídeo pequeno: enviar arquivo direto
+                    print("   📤 Vídeo ≤ 50 MB - enviando arquivo direto...")
             
-            sucesso = curator.enviar_video_publicado(
-                video_path=video_path,
-                titulo=titulo,
-                descricao=descricao,
-                tags=tags,
-                url_youtube=url
-            )
+                    sucesso = curator.enviar_video_publicado(
+                        video_path=video_path,
+                        titulo=titulo,
+                        descricao=descricao,
+                        tags=tags,
+                        url_youtube=url
+                    )
             
-            if sucesso:
-                print("✅ Vídeo enviado diretamente!")
-            else:
-                print("⚠️ Falha ao enviar vídeo")
-                
-        else:
-            # Vídeo grande: criar release e enviar link
-            print("   📦 Vídeo > 50 MB - criando release no GitHub...")
-            
-            # Importar função de criar release
-            from create_release import criar_release_com_video
-            
-            release_info = criar_release_com_video(
-                video_path=video_path,
-                titulo=titulo,
-                descricao=descricao
-            )
-            
-            if release_info:
-                download_url = release_info['download_url']
-                tag_name = release_info['tag_name']
-                
-                print("   ✅ Release criada!")
-                print(f"   🔗 {download_url}")
-                print(f"   🏷️ Tag: {tag_name}")
-                
-                # Enviar link via Telegram COM BOTÃO
-                sucesso = curator.enviar_link_download(
-                    download_url=download_url,
-                    titulo=titulo,
-                    descricao=descricao,
-                    tags=tags,
-                    url_youtube=url,
-                    duracao=duracao,
-                    tamanho_mb=tamanho_mb,
-                    tag_name=tag_name
-                )
-                
-                if sucesso:
-                    print("✅ Link enviado com botão de confirmação!")
-                    
-                    # Aguardar confirmação de download (2 horas)
-                    print("\n⏳ Aguardando você confirmar o download...")
-                    confirmado = curator.aguardar_confirmacao_download(timeout=7200)
-                    
-                    if confirmado:
-                        print("✅ Download confirmado! Release será deletada.")
+                    if sucesso:
+                        print("✅ Vídeo enviado diretamente!")
                     else:
-                        print("⏰ Timeout - release permanecerá no GitHub")
-                        print("   💡 Delete manualmente se já baixou: Settings > Releases")
-                else:
-                    print("⚠️ Falha ao enviar link")
-            else:
-                print("❌ Erro ao criar release")
-                print("   Tentando enviar só metadados...")
+                        print("⚠️ Falha ao enviar vídeo")
                 
-                # Fallback: enviar só informações
-                curator.enviar_mensagem(
-                    f"⚠️ <b>Vídeo muito grande ({tamanho_mb:.2f} MB)</b>\n\n"
-                    f"📺 {titulo}\n\n"
-                    f"🔗 YouTube: {url}\n\n"
-                    f"📁 Vídeo disponível nos GitHub Actions Artifacts por 7 dias"
-                )
+                else:
+                    # Vídeo grande: criar release e enviar link
+                    print("   📦 Vídeo > 50 MB - criando release no GitHub...")
+            
+                    # Importar função de criar release
+                    from create_release import criar_release_com_video
+            
+                    release_info = criar_release_com_video(
+                        video_path=video_path,
+                        titulo=titulo,
+                        descricao=descricao
+                    )
+            
+                    if release_info:
+                        download_url = release_info['download_url']
+                        tag_name = release_info['tag_name']
+                
+                        print("   ✅ Release criada!")
+                        print(f"   🔗 {download_url}")
+                        print(f"   🏷️ Tag: {tag_name}")
+                
+                        # Enviar link via Telegram COM BOTÃO
+                        sucesso = curator.enviar_link_download(
+                            download_url=download_url,
+                            titulo=titulo,
+                            descricao=descricao,
+                            tags=tags,
+                            url_youtube=url,
+                            duracao=duracao,
+                            tamanho_mb=tamanho_mb,
+                            tag_name=tag_name
+                        )
+                
+                        if sucesso:
+                            print("✅ Link enviado com botão de confirmação!")
+                    
+                            # Aguardar confirmação de download (2 horas)
+                            print("\n⏳ Aguardando você confirmar o download...")
+                            confirmado = curator.aguardar_confirmacao_download(timeout=7200)
+                    
+                            if confirmado:
+                                print("✅ Download confirmado! Release será deletada.")
+                            else:
+                                print("⏰ Timeout - release permanecerá no GitHub")
+                                print("   💡 Delete manualmente se já baixou: Settings > Releases")
+                        else:
+                            print("⚠️ Falha ao enviar link")
+                    else:
+                        print("❌ Erro ao criar release")
+                        print("   Tentando enviar só metadados...")
+                
+                        # Fallback: enviar só informações
+                        curator.enviar_mensagem(
+                            f"⚠️ <b>Vídeo muito grande ({tamanho_mb:.2f} MB)</b>\n\n"
+                            f"📺 {titulo}\n\n"
+                            f"🔗 YouTube: {url}\n\n"
+                            f"📁 Vídeo disponível nos GitHub Actions Artifacts por 7 dias"
+                        )
         
-    except Exception as e:
-        print(f"⚠️ Erro ao processar envio: {e}")
-        import traceback
-        traceback.print_exc()
+            except Exception as e:
+                print(f"⚠️ Erro ao processar envio: {e}")
+                import traceback
+                traceback.print_exc()
 
 if __name__ == '__main__':
     main()
