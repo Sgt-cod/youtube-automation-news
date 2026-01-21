@@ -20,7 +20,7 @@ def criar_release_com_video(video_path, titulo, descricao):
         descricao: descrição da release
     
     Returns:
-        str: URL de download direto do vídeo ou None
+        dict: {'download_url': str, 'tag_name': str, 'release_id': int} ou None
     """
     
     # Obter informações do GitHub
@@ -132,7 +132,12 @@ def criar_release_com_video(video_path, titulo, descricao):
             print(f"\n🔗 URL DE DOWNLOAD:")
             print(f"   {download_url}")
             
-            return download_url
+            # Retornar informações da release
+            return {
+                'download_url': download_url,
+                'tag_name': tag_name,
+                'release_id': release_id
+            }
             
     except requests.exceptions.Timeout:
         print("❌ Timeout ao comunicar com GitHub")
@@ -142,6 +147,63 @@ def criar_release_com_video(video_path, titulo, descricao):
         import traceback
         traceback.print_exc()
         return None
+
+def deletar_release(tag_name):
+    """
+    Deleta uma release do GitHub
+    
+    Args:
+        tag_name: nome da tag da release
+    
+    Returns:
+        bool: True se deletado com sucesso
+    """
+    github_token = os.environ.get('GITHUB_TOKEN')
+    github_repository = os.environ.get('GITHUB_REPOSITORY')
+    
+    if not github_token or not github_repository:
+        print("❌ Credenciais GitHub não encontradas")
+        return False
+    
+    headers = {
+        'Authorization': f'token {github_token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    
+    try:
+        print(f"\n🗑️ Deletando release '{tag_name}'...")
+        
+        # Buscar release pela tag
+        get_url = f"https://api.github.com/repos/{github_repository}/releases/tags/{tag_name}"
+        response = requests.get(get_url, headers=headers, timeout=10)
+        
+        if response.status_code != 200:
+            print(f"   ⚠️ Release não encontrada")
+            return False
+        
+        release = response.json()
+        release_id = release['id']
+        
+        # Deletar release
+        delete_url = f"https://api.github.com/repos/{github_repository}/releases/{release_id}"
+        delete_response = requests.delete(delete_url, headers=headers, timeout=10)
+        
+        if delete_response.status_code == 204:
+            print(f"   ✅ Release deletada!")
+            
+            # Deletar tag também
+            tag_url = f"https://api.github.com/repos/{github_repository}/git/refs/tags/{tag_name}"
+            requests.delete(tag_url, headers=headers, timeout=10)
+            print(f"   ✅ Tag deletada!")
+            
+            return True
+        else:
+            print(f"   ❌ Erro ao deletar: {delete_response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Erro: {e}")
+        return False
 
 if __name__ == '__main__':
     # Uso via linha de comando
