@@ -108,7 +108,7 @@ class TelegramCuratorNoticias:
         
         curacao_data = {
             'timestamp': datetime.now().isoformat(),
-            'noticias': noticias_limpas,  # Salvar notícias já limpas
+            'noticias': noticias_limpas,
             'status': 'aguardando',
             'aprovacoes': {},
             'rejeicoes': [],
@@ -158,169 +158,120 @@ class TelegramCuratorNoticias:
         return self._aguardar_aprovacao_temas(timeout)
     
     def enviar_link_download(self, download_url, titulo, descricao, tags, url_youtube, duracao, tamanho_mb, tag_name):
-    """
-    Envia link de download do vídeo via Telegram COM BOTÃO DE CONFIRMAÇÃO
-    
-    Args:
-        download_url: URL de download do GitHub Release
-        titulo: título do vídeo
-        descricao: descrição
-        tags: lista de tags
-        url_youtube: URL do vídeo no YouTube
-        duracao: duração em segundos
-        tamanho_mb: tamanho do arquivo em MB
-        tag_name: nome da tag da release (para deletar depois)
-    
-    Returns:
-        bool: True se enviado com sucesso
-    """
-    print("\n📤 Enviando link de download para Telegram...")
-    
-    try:
-        tags_str = ", ".join(tags) if isinstance(tags, list) else tags
+        """
+        Envia link de download do vídeo via Telegram COM BOTÃO DE CONFIRMAÇÃO
         
-        mensagem = (
-            f"🎬 <b>VÍDEO PUBLICADO</b>\n\n"
-            f"📺 <b>Título:</b>\n{titulo}\n\n"
-            f"📝 <b>Descrição:</b>\n{descricao[:200]}...\n\n"
-            f"🏷️ <b>Tags:</b>\n{tags_str}\n\n"
-            f"⏱️ <b>Duração:</b> {int(duracao)}s ({duracao/60:.1f}min)\n"
-            f"📦 <b>Tamanho:</b> {tamanho_mb:.2f} MB\n\n"
-            f"🔗 <b>YouTube:</b>\n{url_youtube}\n\n"
-            f"⬇️ <b>DOWNLOAD DO VÍDEO:</b>\n{download_url}\n\n"
-            f"💡 Clique no link, baixe o vídeo e depois confirme abaixo"
-        )
+        Args:
+            download_url: URL de download do GitHub Release
+            titulo: título do vídeo
+            descricao: descrição
+            tags: lista de tags
+            url_youtube: URL do vídeo no YouTube
+            duracao: duração em segundos
+            tamanho_mb: tamanho do arquivo em MB
+            tag_name: nome da tag da release (para deletar depois)
         
-        # Criar botão de confirmação inline
-        keyboard = {
-            'inline_keyboard': [
-                [
-                    {'text': '✅ Já baixei o vídeo', 'callback_data': f'download_ok_{tag_name}'}
-                ]
-            ]
-        }
+        Returns:
+            bool: True se enviado com sucesso
+        """
+        print("\n📤 Enviando link de download para Telegram...")
         
-        resultado = self.enviar_mensagem(mensagem, reply_markup=keyboard)
-        
-        if resultado:
-            print("✅ Link de download enviado com botão!")
+        try:
+            tags_str = ", ".join(tags) if isinstance(tags, list) else tags
             
-            # Salvar informações da release para deletar depois
-            release_info = {
-                'tag_name': tag_name,
-                'download_url': download_url,
-                'timestamp': datetime.now().isoformat(),
-                'aguardando_confirmacao': True
+            mensagem = (
+                f"🎬 <b>VÍDEO PUBLICADO</b>\n\n"
+                f"📺 <b>Título:</b>\n{titulo}\n\n"
+                f"📝 <b>Descrição:</b>\n{descricao[:200]}...\n\n"
+                f"🏷️ <b>Tags:</b>\n{tags_str}\n\n"
+                f"⏱️ <b>Duração:</b> {int(duracao)}s ({duracao/60:.1f}min)\n"
+                f"📦 <b>Tamanho:</b> {tamanho_mb:.2f} MB\n\n"
+                f"🔗 <b>YouTube:</b>\n{url_youtube}\n\n"
+                f"⬇️ <b>DOWNLOAD DO VÍDEO:</b>\n{download_url}\n\n"
+                f"💡 Clique no link, baixe o vídeo e depois confirme abaixo"
+            )
+            
+            # Criar botão de confirmação inline
+            keyboard = {
+                'inline_keyboard': [
+                    [
+                        {'text': '✅ Já baixei o vídeo', 'callback_data': f'download_ok_{tag_name}'}
+                    ]
+                ]
             }
             
-            with open('release_pendente.json', 'w', encoding='utf-8') as f:
-                json.dump(release_info, f, indent=2)
+            resultado = self.enviar_mensagem(mensagem, reply_markup=keyboard)
             
-            # Enviar descrição completa se for muito longa
-            if len(descricao) > 200:
-                self.enviar_mensagem(
-                    f"📄 <b>Descrição Completa:</b>\n\n{descricao}"
-                )
-            
-            return True
-        else:
-            print("❌ Falha ao enviar link")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Erro ao enviar link: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-def aguardar_confirmacao_download(self, timeout=7200):
-    """
-    Aguarda confirmação de download via Telegram
-    
-    Args:
-        timeout: tempo máximo de espera em segundos (padrão: 2 horas)
-    
-    Returns:
-        bool: True se confirmado, False se timeout
-    """
-    print(f"\n⏳ Aguardando confirmação de download...")
-    print(f"   Timeout: {timeout}s ({timeout//3600}h)")
-    
-    if not os.path.exists('release_pendente.json'):
-        print("   ⚠️ Nenhuma release pendente")
-        return False
-    
-    inicio = time.time()
-    
-    while time.time() - inicio < timeout:
-        # Verificar status
-        try:
-            with open('release_pendente.json', 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            if not data.get('aguardando_confirmacao'):
-                print("   ✅ Download confirmado!")
+            if resultado:
+                print("✅ Link de download enviado com botão!")
+                
+                # Salvar informações da release para deletar depois
+                release_info = {
+                    'tag_name': tag_name,
+                    'download_url': download_url,
+                    'timestamp': datetime.now().isoformat(),
+                    'aguardando_confirmacao': True
+                }
+                
+                with open('release_pendente.json', 'w', encoding='utf-8') as f:
+                    json.dump(release_info, f, indent=2)
+                
+                # Enviar descrição completa se for muito longa
+                if len(descricao) > 200:
+                    self.enviar_mensagem(
+                        f"📄 <b>Descrição Completa:</b>\n\n{descricao}"
+                    )
+                
                 return True
-                
-        except:
-            pass
-        
-        # Processar atualizações do Telegram
-        self._processar_atualizacoes()
-        
-        time.sleep(3)
-    
-    print("   ⏰ Timeout - download não confirmado")
-    return False
-
-# ADICIONAR ao _processar_callback (função já existente)
-# Adicione este trecho dentro da função _processar_callback:
-
-def _processar_callback(self, callback):
-    """Processa botões"""
-    callback_data = callback['data']
-    callback_id = callback['id']
-    
-    # ... código existente ...
-    
-    # NOVO: Processar confirmação de download
-    if callback_data.startswith('download_ok_'):
-        tag_name = callback_data.replace('download_ok_', '')
-        print(f"\n✅ CONFIRMAÇÃO DE DOWNLOAD RECEBIDA")
-        print(f"   Tag: {tag_name}")
-        
-        self._responder_callback(callback_id, "✅ Download confirmado!")
-        
-        # Atualizar arquivo
-        try:
-            with open('release_pendente.json', 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            data['aguardando_confirmacao'] = False
-            data['confirmado_em'] = datetime.now().isoformat()
-            
-            with open('release_pendente.json', 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
-            
-            self.enviar_mensagem("✅ <b>Download confirmado!</b>\n\n🗑️ Deletando release do GitHub...")
-            
-            # Deletar release
-            from create_release import deletar_release
-            
-            if deletar_release(tag_name):
-                self.enviar_mensagem("✅ Release deletada com sucesso!\n\n💾 Espaço liberado no repositório.")
-                
-                # Limpar arquivo
-                try:
-                    os.remove('release_pendente.json')
-                except:
-                    pass
             else:
-                self.enviar_mensagem("⚠️ Erro ao deletar release. Delete manualmente se necessário.")
+                print("❌ Falha ao enviar link")
+                return False
                 
         except Exception as e:
-            print(f"❌ Erro ao processar confirmação: {e}")
-            self.enviar_mensagem(f"❌ Erro: {e}")
+            print(f"❌ Erro ao enviar link: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def aguardar_confirmacao_download(self, timeout=7200):
+        """
+        Aguarda confirmação de download via Telegram
+        
+        Args:
+            timeout: tempo máximo de espera em segundos (padrão: 2 horas)
+        
+        Returns:
+            bool: True se confirmado, False se timeout
+        """
+        print(f"\n⏳ Aguardando confirmação de download...")
+        print(f"   Timeout: {timeout}s ({timeout//3600}h)")
+        
+        if not os.path.exists('release_pendente.json'):
+            print("   ⚠️ Nenhuma release pendente")
+            return False
+        
+        inicio = time.time()
+        
+        while time.time() - inicio < timeout:
+            # Verificar status
+            try:
+                with open('release_pendente.json', 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                if not data.get('aguardando_confirmacao'):
+                    print("   ✅ Download confirmado!")
+                    return True
+                    
+            except:
+                pass
+            
+            # Processar atualizações do Telegram
+            self._processar_atualizacoes()
+            
+            time.sleep(3)
+        
+        print("   ⏰ Timeout - download não confirmado")
+        return False
     
     def _enviar_proximo_tema(self):
         """Envia próximo tema para aprovação"""
@@ -890,6 +841,46 @@ def _processar_callback(self, callback):
         """Processa botões"""
         callback_data = callback['data']
         callback_id = callback['id']
+        
+        # Processar confirmação de download
+        if callback_data.startswith('download_ok_'):
+            tag_name = callback_data.replace('download_ok_', '')
+            print(f"\n✅ CONFIRMAÇÃO DE DOWNLOAD RECEBIDA")
+            print(f"   Tag: {tag_name}")
+            
+            self._responder_callback(callback_id, "✅ Download confirmado!")
+            
+            # Atualizar arquivo
+            try:
+                with open('release_pendente.json', 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                data['aguardando_confirmacao'] = False
+                data['confirmado_em'] = datetime.now().isoformat()
+                
+                with open('release_pendente.json', 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2)
+                
+                self.enviar_mensagem("✅ <b>Download confirmado!</b>\n\n🗑️ Deletando release do GitHub...")
+                
+                # Deletar release
+                from create_release import deletar_release
+                
+                if deletar_release(tag_name):
+                    self.enviar_mensagem("✅ Release deletada com sucesso!\n\n💾 Espaço liberado no repositório.")
+                    
+                    # Limpar arquivo
+                    try:
+                        os.remove('release_pendente.json')
+                    except:
+                        pass
+                else:
+                    self.enviar_mensagem("⚠️ Erro ao deletar release. Delete manualmente se necessário.")
+                    
+            except Exception as e:
+                print(f"❌ Erro ao processar confirmação: {e}")
+                self.enviar_mensagem(f"❌ Erro: {e}")
+            return
         
         if callback_data.startswith('tema_'):
             if os.path.exists(CURACAO_TEMAS_FILE):
