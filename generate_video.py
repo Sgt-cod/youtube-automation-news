@@ -43,27 +43,63 @@ model = genai.GenerativeModel('gemini-3-flash-preview')
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
     config = json.load(f)
 
-def buscar_noticias():
+def buscar_noticias(quantidade=1):
     """Busca notícias dos feeds RSS configurados"""
     if config.get('tipo') != 'noticias':
         return None
     
     feeds = config.get('rss_feeds', [])
     todas_noticias = []
+    titulos_vistos = set()
+    
+    noticias_por_feed = 10 if quantidade > 1 else 3
+    
+    print(f"🔍 Buscando notícias de {len(feeds)} feeds RSS...")
     
     for feed_url in feeds[:3]:
         try:
+            print(f"   📡 Feed: {feed_url[:50]}...")
             feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:3]:
-                todas_noticias.append({
-                    'titulo': entry.title,
-                    'resumo': entry.get('summary', entry.title),
-                    'link': entry.link
-                })
-        except:
+            
+            noticias_feed = 0
+            for entry in feed.entries[:noticias_por_feed]:
+                titulo = entry.title.strip()
+                titulo_normalizado = titulo.lower().strip('.,!?;: ')
+                
+                if titulo_normalizado not in titulos_vistos:
+                    todas_noticias.append({
+                        'titulo': titulo,
+                        'resumo': entry.get('summary', titulo),
+                        'link': entry.link
+                    })
+                    titulos_vistos.add(titulo_normalizado)
+                    noticias_feed += 1
+                else:
+                    print(f"   ⚠️ Notícia duplicada ignorada: {titulo[:50]}...")
+            
+            print(f"   ✅ {noticias_feed} notícias únicas deste feed")
+            
+        except Exception as e:
+            print(f"   ❌ Erro ao buscar feed: {e}")
             continue
     
-    return random.choice(todas_noticias) if todas_noticias else None
+    if not todas_noticias:
+        print("   ⚠️ Nenhuma notícia encontrada!")
+        return None
+    
+    print(f"\n✅ Total: {len(todas_noticias)} notícias únicas encontradas")
+    
+    if quantidade == 1:
+        return random.choice(todas_noticias)
+    
+    random.shuffle(todas_noticias)
+    noticias_selecionadas = todas_noticias[:min(quantidade, len(todas_noticias))]
+    
+    print(f"📰 Selecionadas {len(noticias_selecionadas)} notícias para o vídeo:")
+    for i, noticia in enumerate(noticias_selecionadas, 1):
+        print(f"   {i}. {noticia['titulo'][:60]}...")
+    
+    return noticias_selecionadas
 
 def gerar_titulo_especifico(tema):
     """Gera título específico e keywords"""
@@ -85,16 +121,90 @@ Retorne APENAS JSON: {{"titulo": "título aqui", "keywords": ["palavra1", "palav
     except:
         return {"titulo": tema, "keywords": ["politics", "news", "brazil", "government", "congress"]}
 
-def gerar_roteiro(duracao_alvo, titulo, noticia=None):
-    """Gera roteiro de narração"""
-    if duracao_alvo == 'short':
-        palavras_alvo = 120
-        tempo = '30-60 segundos'
-    else:
-        palavras_alvo = config.get('duracao_minutos', 10) * 150
-        tempo = f"{config.get('duracao_minutos', 10)} minutos"
+def gerar_roteiro_segmentado(noticias, duracao_por_noticia=120):
+    """Gera roteiro segmentado para vídeo longo com múltiplas notícias"""
+    print(f"\n✍️ Gerando roteiros segmentados...")
+    print(f"   {len(noticias)} notícias aprovadas")
+    print(f"   ~{duracao_por_noticia}s por notícia")
     
-    if noticia:
+    palavras_por_segundo = 2.5
+    palavras_por_noticia = int(duracao_por_noticia * palavras_por_segundo)
+    
+    roteiros_individuais = []
+    tempo_atual = 0
+    
+    for i, noticia in enumerate(noticias):
+        print(f"\n   📝 Gerando roteiro {i+1}/{len(noticias)}: {noticia['titulo'][:50]}...")
+        
+        prompt = f"""Crie um script JORNALÍSTICO sobre esta notícia:
+
+TÍTULO: {noticia['titulo']}
+RESUMO: {noticia['resumo']}
+
+REGRAS IMPORTANTES:
+- Aproximadamente {palavras_por_noticia} palavras (2 minutos de narração)
+- Tom noticioso e informativo
+- Este é o segmento {i+1} de {len(noticias)} notícias
+- {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "Comece direto na notícia"}
+- NÃO mencione apresentador, elementos visuais ou "vamos para"
+- Texto corrido para narração
+- SEM formatação, asteriscos, marcadores ou emojis
+- TERMINE o segmento de forma conclusiva para esta notícia específica
+
+Escreva APENAS o roteiro deste segmento."""
+
+        try:
+            response = model.generate_content(prompt)
+            roteiro = response.text
+            
+            roteiro = re.sub(r'\*+', '', roteiro)
+            roteiro = re.sub(r'#+\s', '', roteiro)
+            roteiro = re.sub(r'^-\s', '', roteiro, flags=re.MULTILINE)
+            roteiro = roteiro.replace('*', '').replace('#', '').replace('_', '').strip()
+            
+            palavras = len(roteiro.split())
+            duracao_estimada = palavras / palavras_por_segundo
+            
+            roteiros_individuais.append({
+                'noticia': noticia,
+                'roteiro': roteiro,
+                'palavras': palavras,
+                'duracao_estimada': duracao_estimada,
+                'inicio': tempo_atual,
+                'fim': tempo_atual + duracao_estimada
+            })
+            
+            tempo_atual += duracao_estimada
+            print(f"   ✅ {palavras} palavras (~{duracao_estimada:.1f}s)")
+            
+        except Exception as e:
+            print(f"   ❌ Erro: {e}")
+            continue
+    
+    roteiro_completo = "\n\n".join([r['roteiro'] for r in roteiros_individuais])
+    
+    print(f"\n✅ Roteiro completo gerado:")
+    print(f"   {len(roteiros_individuais)} segmentos")
+    print(f"   {len(roteiro_completo.split())} palavras totais")
+    print(f"   ~{tempo_atual:.1f}s (~{tempo_atual/60:.1f}min)")
+    
+    return {
+        'segmentos': roteiros_individuais,
+        'roteiro_completo': roteiro_completo,
+        'duracao_total_estimada': tempo_atual
+    }
+
+def gerar_roteiro(duracao_alvo, titulo, noticias=None):
+    """Gera roteiro de narração APENAS PARA SHORTS"""
+    if duracao_alvo != 'short':
+        raise Exception("Use gerar_roteiro_segmentado() para vídeos longos")
+    
+    palavras_alvo = 120
+    tempo = '30-60 segundos'
+    
+    if noticias and (isinstance(noticias, dict) or (isinstance(noticias, list) and len(noticias) == 1)):
+        noticia = noticias if isinstance(noticias, dict) else noticias[0]
+        
         prompt = f"""Crie um script JORNALÍSTICO sobre: {titulo}
 
 Resumo: {noticia['resumo']}
@@ -307,7 +417,7 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     
     segmentos = re.split(r'[.!?]\s+', roteiro)
     segmentos = [s.strip() for s in segmentos if len(s.strip()) > 20]
-    print(f"   {len(segmentos)} segmentos")
+    print(f"   {len(segmentos)} segmentos identificados")
     
     palavras_total = len(roteiro.split())
     palavras_por_segundo = palavras_total / duracao_audio
@@ -367,7 +477,7 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
 
 def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file, duracao_total):
     """Cria SHORT SEM legendas"""
-    print(f"📹 Criando short...")
+    print(f"📹 Criando short (sem legendas)...")
     
     clips_imagem = []
     tempo_coberto = 0
@@ -396,9 +506,10 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
                 
         except Exception as e:
-            print(f"  ⚠️ Erro {i}: {e}")
+            print(f"  ⚠️ Erro imagem {i}: {e}")
     
     if tempo_coberto < duracao_total:
+        print(f"⚠️ Preenchendo {duracao_total - tempo_coberto:.1f}s")
         extras = buscar_midias_final(['brasil'], quantidade=3)
         duracao_restante = duracao_total - tempo_coberto
         duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
@@ -423,11 +534,14 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
                 continue
     
     if not clips_imagem:
+        print("❌ Nenhum clip de imagem criado!")
         return None
     
+    print("🎬 Compondo vídeo...")
     video_base = CompositeVideoClip(clips_imagem, size=(1080, 1920))
     video_base = video_base.set_duration(duracao_total)
     
+    print("🎵 Adicionando áudio...")
     audio = AudioFileClip(audio_path)
     video_final = video_base.set_audio(audio)
     
@@ -442,7 +556,92 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
         threads=4
     )
     
+    print("🧹 Limpando memória...")
     video_final.close()
+    audio.close()
+    for clip in clips_imagem:
+        clip.close()
+    
+    return output_file
+
+def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file, duracao_total):
+    """Cria vídeo longo SEM legendas"""
+    print(f"📹 Criando vídeo longo...")
+    
+    clips_imagem = []
+    tempo_coberto = 0
+    
+    for i, item in enumerate(midias_sincronizadas):
+        midia_info, midia_tipo = item['midia']
+        inicio = item['inicio']
+        duracao_clip = item['duracao']
+        
+        try:
+            if midia_tipo == 'foto_local' and os.path.exists(midia_info):
+                clip = ImageClip(midia_info, duration=duracao_clip)
+                clip = clip.resize(height=1080)
+                if clip.w < 1920:
+                    clip = clip.resize(width=1920)
+                
+                clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
+                
+                if clip.size != (1920, 1080):
+                    clip = clip.resize((1920, 1080))
+                
+                clip = clip.resize(lambda t: 1 + 0.03 * (t / duracao_clip))
+                clip = clip.set_start(inicio)
+                
+                clips_imagem.append(clip)
+                tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
+                
+        except Exception as e:
+            print(f"  ⚠️ Erro {i}: {e}")
+    
+    if tempo_coberto < duracao_total:
+        extras = buscar_midias_final(['brasil'], quantidade=5)
+        duracao_restante = duracao_total - tempo_coberto
+        duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
+        
+        for idx, (midia_info, midia_tipo) in enumerate(extras):
+            try:
+                if midia_tipo == 'foto_local' and os.path.exists(midia_info):
+                    clip = ImageClip(midia_info, duration=duracao_por_extra)
+                    clip = clip.resize(height=1080)
+                    if clip.w < 1920:
+                        clip = clip.resize(width=1920)
+                    
+                    clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
+                    
+                    if clip.size != (1920, 1080):
+                        clip = clip.resize((1920, 1080))
+                    
+                    clip = clip.set_start(tempo_coberto)
+                    clips_imagem.append(clip)
+                    tempo_coberto += duracao_por_extra
+            except:
+                continue
+    
+    if not clips_imagem:
+        return None
+    
+    video_base = CompositeVideoClip(clips_imagem, size=(1920, 1080))
+    video_base = video_base.set_duration(duracao_total)
+    
+    audio = AudioFileClip(audio_path)
+    video_base = video_base.set_audio(audio)
+    
+    print("💾 Renderizando...")
+    video_base.write_videofile(
+        output_file,
+        fps=24,
+        codec='libx264',
+        audio_codec='aac',
+        preset='medium',
+        bitrate='5000k',
+        threads=4
+    )
+    
+    video_base.close()
     audio.close()
     for clip in clips_imagem:
         clip.close()
@@ -481,7 +680,7 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
         
         # Upload thumbnail
         if thumbnail_path and os.path.exists(thumbnail_path):
-            print("📤 Upload thumbnail...")
+            print("📤 Fazendo upload da thumbnail...")
             try:
                 youtube.thumbnails().set(
                     videoId=video_id,
@@ -534,7 +733,7 @@ def main():
     # Buscar mídias
     midias_sincronizadas = analisar_roteiro_e_buscar_midias(roteiro, duracao)
     
-    # Complementar
+    # Complementar se necessário
     if len(midias_sincronizadas) < 3:
         print("⚠️ Complementando...")
         extras = buscar_midias_final(['brasil'], quantidade=5)
@@ -549,20 +748,28 @@ def main():
             })
             tempo_restante -= duracao_extra
     
-    # DEFINIR video_path
+    # ⭐ DEFINIR video_path AQUI - ANTES DE CRIAR O VÍDEO ⭐
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
     print(f"📹 Arquivo: {video_path}")
     
     # Montar vídeo
-    print("🎥 Montando...")
+    print("🎥 Montando vídeo...")
     try:
-        resultado = criar_video_short_sem_legendas(
-            audio_path,
-            midias_sincronizadas,
-            video_path,
-            duracao
-        )
+        if VIDEO_TYPE == 'short':
+            resultado = criar_video_short_sem_legendas(
+                audio_path,
+                midias_sincronizadas,
+                video_path,
+                duracao
+            )
+        else:
+            resultado = criar_video_long_sem_legendas(
+                audio_path,
+                midias_sincronizadas,
+                video_path,
+                duracao
+            )
         
         if not resultado:
             print("❌ Erro ao criar vídeo")
@@ -576,26 +783,36 @@ def main():
         traceback.print_exc()
         return
     
-    # Metadados
+    # Preparar metadados
     titulo = titulo_video[:60] if len(titulo_video) <= 60 else titulo_video[:57] + '...'
     if VIDEO_TYPE == 'short':
         titulo += ' #shorts'
     
-    descricao = roteiro[:300] + '...\n\n🔔 Inscreva-se!\n#shorts'
-    tags = ['noticias', 'informacao', 'politica', 'brasil', 'shorts']
+    descricao = roteiro[:300] + '...\n\n🔔 Inscreva-se!\n#' + ('shorts' if VIDEO_TYPE == 'short' else 'noticias')
+    tags = ['noticias', 'informacao', 'politica', 'brasil']
+    if VIDEO_TYPE == 'short':
+        tags.append('shorts')
     
     # Thumbnail
     thumbnail_path = None
     if USAR_CURACAO:
-        print("\n🖼️ Thumbnail...")
+        print("\n" + "="*60)
+        print("🖼️ VERIFICANDO THUMBNAIL")
+        print("="*60)
         
         thumbnail_custom = f'{ASSETS_DIR}/thumbnail_custom.jpg'
         if os.path.exists(thumbnail_custom):
+            print("✅ Thumbnail já recebida")
             thumbnail_path = thumbnail_custom
         else:
             try:
                 curator = TelegramCuratorNoticias()
                 thumbnail_path = curator.solicitar_thumbnail(titulo, timeout=1200)
+                
+                if thumbnail_path:
+                    print(f"✅ Thumbnail: {thumbnail_path}")
+                else:
+                    print("⚠️ Thumbnail automática")
             except Exception as e:
                 print(f"⚠️ Erro: {e}")
     
@@ -610,7 +827,7 @@ def main():
             thumbnail_path
         )
         
-        url = f'https://youtube.com/shorts/{video_id}'
+        url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
         
         # Log
         log_entry = {
@@ -638,96 +855,99 @@ def main():
         
         print(f"✅ Publicado!\n🔗 {url}")
         
-        # ENVIAR PARA TELEGRAM
-        if USAR_CURACAO:
-            print("\n📱 Enviando Telegram...")
+        # ENVIAR VÍDEO PARA TELEGRAM
+if USAR_CURACAO:
+    print("\n" + "="*60)
+    print("📱 ENVIANDO PARA TELEGRAM")
+    print("="*60)
+    
+    try:
+        curator = TelegramCuratorNoticias()
+        
+        # Verificar tamanho do vídeo
+        tamanho_mb = os.path.getsize(video_path) / (1024 * 1024)
+        print(f"   📦 Tamanho do vídeo: {tamanho_mb:.2f} MB")
+        
+        if tamanho_mb <= 50:
+            # Vídeo pequeno: enviar arquivo direto
+            print("   📤 Vídeo ≤ 50 MB - enviando arquivo direto...")
             
-            try:
-                curator = TelegramCuratorNoticias()
+            sucesso = curator.enviar_video_publicado(
+                video_path=video_path,
+                titulo=titulo,
+                descricao=descricao,
+                tags=tags,
+                url_youtube=url
+            )
+            
+            if sucesso:
+                print("✅ Vídeo enviado diretamente!")
+            else:
+                print("⚠️ Falha ao enviar vídeo")
                 
-                tamanho_mb = os.path.getsize(video_path) / (1024 * 1024)
-                print(f"   📦 Tamanho: {tamanho_mb:.2f} MB")
+        else:
+            # Vídeo grande: criar release e enviar link
+            print("   📦 Vídeo > 50 MB - criando release no GitHub...")
+            
+            # Importar função de criar release
+            from create_release import criar_release_com_video
+            
+            release_info = criar_release_com_video(
+                video_path=video_path,
+                titulo=titulo,
+                descricao=descricao
+            )
+            
+            if release_info:
+                download_url = release_info['download_url']
+                tag_name = release_info['tag_name']
                 
-                if tamanho_mb <= 50:
-                    # Enviar arquivo direto
-                    print("   📤 Enviando arquivo...")
+                print("   ✅ Release criada!")
+                print(f"   🔗 {download_url}")
+                print(f"   🏷️ Tag: {tag_name}")
+                
+                # Enviar link via Telegram COM BOTÃO
+                sucesso = curator.enviar_link_download(
+                    download_url=download_url,
+                    titulo=titulo,
+                    descricao=descricao,
+                    tags=tags,
+                    url_youtube=url,
+                    duracao=duracao,
+                    tamanho_mb=tamanho_mb,
+                    tag_name=tag_name
+                )
+                
+                if sucesso:
+                    print("✅ Link enviado com botão de confirmação!")
                     
-                    sucesso = curator.enviar_video_publicado(
-                        video_path=video_path,
-                        titulo=titulo,
-                        descricao=descricao,
-                        tags=tags,
-                        url_youtube=url
-                    )
+                    # Aguardar confirmação de download (2 horas)
+                    print("\n⏳ Aguardando você confirmar o download...")
+                    confirmado = curator.aguardar_confirmacao_download(timeout=7200)
                     
-                    if sucesso:
-                        print("✅ Enviado!")
-                    
-                else:
-                    # Criar release
-                    print("   📦 Criando release...")
-                    
-                    from create_release import criar_release_com_video
-                    
-                    release_info = criar_release_com_video(
-                        video_path=video_path,
-                        titulo=titulo,
-                        descricao=descricao
-                    )
-                    
-                    if release_info:
-                        download_url = release_info['download_url']
-                        tag_name = release_info['tag_name']
-                        
-                        print(f"   ✅ Release: {tag_name}")
-                        
-                        sucesso = curator.enviar_link_download(
-                            download_url=download_url,
-                            titulo=titulo,
-                            descricao=descricao,
-                            tags=tags,
-                            url_youtube=url,
-                            duracao=duracao,
-                            tamanho_mb=tamanho_mb,
-                            tag_name=tag_name
-                        )
-                        
-                        if sucesso:
-                            print("✅ Link enviado!")
-                            
-                            print("\n⏳ Aguardando confirmação...")
-                            confirmado = curator.aguardar_confirmacao_download(timeout=7200)
-                            
-                            if confirmado:
-                                print("✅ Confirmado! Release deletada.")
-                            else:
-                                print("⏰ Timeout")
+                    if confirmado:
+                        print("✅ Download confirmado! Release será deletada.")
                     else:
-                        curator.enviar_mensagem(
-                            f"⚠️ Vídeo grande ({tamanho_mb:.2f} MB)\n\n"
-                            f"📺 {titulo}\n🔗 {url}\n\n"
-                            f"📁 Disponível nos Artifacts por 7 dias"
-                        )
-                    
-            except Exception as e:
-                print(f"⚠️ Erro: {e}")
+                        print("⏰ Timeout - release permanecerá no GitHub")
+                        print("   💡 Delete manualmente se já baixou: Settings > Releases")
+                else:
+                    print("⚠️ Falha ao enviar link")
+            else:
+                print("❌ Erro ao criar release")
+                print("   Tentando enviar só metadados...")
+                
+                # Fallback: enviar só informações
+                curator.enviar_mensagem(
+                    f"⚠️ <b>Vídeo muito grande ({tamanho_mb:.2f} MB)</b>\n\n"
+                    f"📺 {titulo}\n\n"
+                    f"🔗 YouTube: {url}\n\n"
+                    f"📁 Vídeo disponível nos GitHub Actions Artifacts por 7 dias"
+                )
         
-        # Limpar
-        print("\n🧹 Limpando...")
-        for file in os.listdir(ASSETS_DIR):
-            try:
-                if not file.startswith('custom_') and not file.startswith('thumbnail_'):
-                    os.remove(os.path.join(ASSETS_DIR, file))
-            except:
-                pass
-        
-        print(f"\n💾 Vídeo: {video_path}")
-            
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"⚠️ Erro ao processar envio: {e}")
         import traceback
         traceback.print_exc()
-        raise
 
 if __name__ == '__main__':
     main()
