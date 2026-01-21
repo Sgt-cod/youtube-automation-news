@@ -748,7 +748,7 @@ def main():
             })
             tempo_restante -= duracao_extra
     
-    # ⭐ DEFINIR video_path AQUI - ANTES DE CRIAR O VÍDEO ⭐
+    # Definir video_path ANTES de criar o vídeo
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
     print(f"📹 Arquivo: {video_path}")
@@ -948,6 +948,11 @@ def main():
                 print(f"⚠️ Erro ao processar envio: {e}")
                 import traceback
                 traceback.print_exc()
+        
+    except Exception as e:
+        print(f"❌ Erro no upload: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == '__main__':
     main()
