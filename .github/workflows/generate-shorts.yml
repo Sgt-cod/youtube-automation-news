@@ -11,10 +11,9 @@ on:
     - cron: '0 0 * * *'   # 21:00 BRT
   workflow_dispatch:
 
-# ADICIONAR PERMISSÕES AQUI
 permissions:
-  contents: write  # Necessário para criar releases
-  
+  contents: write
+
 jobs:
   gerar-short:
     runs-on: ubuntu-latest
@@ -50,8 +49,8 @@ jobs:
           USAR_CURACAO: true
           CURACAO_TIMEOUT: 3600
           VIDEO_TYPE: short
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # ADICIONAR ESTA LINHA
-          GITHUB_REPOSITORY: ${{ github.repository }}  # ADICIONAR ESTA LINHA
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: python generate_video.py
       
       - name: Commit logs atualizados
@@ -68,47 +67,3 @@ jobs:
           name: short-${{ github.run_number }}
           path: videos/*.mp4
           retention-days: 7
-"""
-
-### **Passo 5: Fazer o mesmo para `generate.yml`**
-
-Atualize também `.github/workflows/generate.yml` com as mesmas permissões e variáveis.
-
-"""
-
-## ✅ **Como vai funcionar:**
-
-1. **Vídeo ≤ 50 MB:** 
-   - Envia arquivo direto pelo Telegram ✅
-
-2. **Vídeo > 50 MB:**
-   - Cria Release no GitHub 📦
-   - Faz upload do vídeo na Release 
-   - Envia link de download pelo Telegram 🔗
-   - Você clica no link e baixa direto
-
-"""
-
-## 📱 **Mensagem que você receberá (vídeos grandes):**
-"""
-🎬 VÍDEO PUBLICADO
-
-📺 Título:
-Congresso aprova reforma fiscal #shorts
-
-📝 Descrição:
-[descrição...]
-
-🏷️ Tags:
-noticias, informacao, politica, brasil, shorts
-
-⏱️ Duração: 45s (0.8min)
-📦 Tamanho: 78.32 MB
-
-🔗 YouTube:
-https://youtube.com/shorts/ABC123
-
-⬇️ DOWNLOAD DO VÍDEO:
-https://github.com/Sgt-cod/youtube-automation-news/releases/download/video-20250121_143022/short_20250121_143022.mp4
-
-💡 Clique no link acima para baixar o MP4 e postar no TikTok
