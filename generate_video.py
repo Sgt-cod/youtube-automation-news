@@ -243,7 +243,7 @@ Escreva APENAS o roteiro."""
 
 async def criar_audio_async(texto, output_file):
     """Cria áudio com Edge TTS (async)"""
-    voz = config.get('voz', 'pt-BR-FranciscaNeural')
+    voz = config.get('voz', 'pt-BR-ThalitaMultilingualNeural')
     
     for tentativa in range(3):
         try:
