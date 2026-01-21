@@ -271,7 +271,14 @@ class TelegramCuratorNoticias:
             time.sleep(3)
         
         print("   ⏰ Timeout - download não confirmado")
-        return False
+        self.enviar_mensagem(
+            "⏰ <b>TIMEOUT - Download não confirmado</b>\n\n"
+            "A release permanecerá no GitHub.\n"
+            "💡 Delete manualmente em: Settings > Releases\n\n"
+            "⚠️ Workflow finalizado por timeout."
+        )
+        time.sleep(2)
+        sys.exit(0)  # Finalizar workflow mesmo com timeout
     
     def _enviar_proximo_tema(self):
         """Envia próximo tema para aprovação"""
@@ -867,19 +874,29 @@ class TelegramCuratorNoticias:
                 from create_release import deletar_release
                 
                 if deletar_release(tag_name):
-                    self.enviar_mensagem("✅ Release deletada com sucesso!\n\n💾 Espaço liberado no repositório.")
+                    self.enviar_mensagem("✅ Release deletada com sucesso!\n\n💾 Espaço liberado no repositório.\n\n🎉 Workflow finalizado!")
                     
                     # Limpar arquivo
                     try:
                         os.remove('release_pendente.json')
                     except:
                         pass
+                    
+                    print("\n" + "="*60)
+                    print("✅ WORKFLOW CONCLUÍDO COM SUCESSO!")
+                    print("="*60)
+                    time.sleep(2)
+                    sys.exit(0)  # Finalizar workflow com sucesso
                 else:
-                    self.enviar_mensagem("⚠️ Erro ao deletar release. Delete manualmente se necessário.")
+                    self.enviar_mensagem("⚠️ Erro ao deletar release. Delete manualmente se necessário.\n\n⚠️ Workflow finalizado com aviso.")
+                    time.sleep(2)
+                    sys.exit(0)  # Finalizar mesmo com erro na deleção
                     
             except Exception as e:
                 print(f"❌ Erro ao processar confirmação: {e}")
-                self.enviar_mensagem(f"❌ Erro: {e}")
+                self.enviar_mensagem(f"❌ Erro: {e}\n\n⚠️ Workflow finalizado com erro.")
+                time.sleep(2)
+                sys.exit(1)  # Finalizar com código de erro
             return
         
         if callback_data.startswith('tema_'):
