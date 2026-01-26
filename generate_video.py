@@ -148,6 +148,7 @@ REGRAS IMPORTANTES:
 - Este é o segmento {i+1} de {len(noticias)} notícias
 - {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "Comece direto na notícia"}
 - NÃO mencione apresentador, elementos visuais ou "vamos para"
+- Aproximadamente 200 palavras
 - Texto corrido para narração
 - SEM formatação, asteriscos, marcadores ou emojis
 - TERMINE o segmento de forma conclusiva para esta notícia específica
