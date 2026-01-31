@@ -201,8 +201,8 @@ def gerar_roteiro(duracao_alvo, titulo, noticias=None):
     if duracao_alvo != 'short':
         raise Exception("Use gerar_roteiro_segmentado() para vídeos longos")
     
-    palavras_alvo = 120
-    tempo = '30-60 segundos'
+    palavras_alvo = 200
+    tempo = '60-90 segundos'
     
     if noticias and (isinstance(noticias, dict) or (isinstance(noticias, list) and len(noticias) == 1)):
         noticia = noticias if isinstance(noticias, dict) else noticias[0]
