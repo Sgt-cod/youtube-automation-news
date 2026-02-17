@@ -1026,26 +1026,16 @@ class TelegramCuratorNoticias:
             else:
                 self.enviar_mensagem("❌ Todos enviados")
         
-        # Verificar se é FOTO ou VÍDEO
-        elif 'photo' in message or 'video' in message:
+        elif 'photo' in message:
             thumbnail_file = 'thumbnail_pendente.json'
-    
-            # Vídeo nunca é thumbnail, vai direto para curadoria
-            if 'video' in message:
-                if os.path.exists(CURACAO_FILE):
-                    self._processar_foto_enviada(message)
-                else:
-                    self.enviar_mensagem("⚠️ Nenhuma curadoria ativa no momento.")
-    
-            # Foto: verificar se é thumbnail ou curadoria
-            elif 'photo' in message:
-                if os.path.exists(thumbnail_file):
-                    self._processar_thumbnail(message)
-                elif os.path.exists(CURACAO_FILE):
-                    self._processar_foto_enviada(message)
+            
+            if os.path.exists(thumbnail_file):
+                self._processar_thumbnail(message)
+            elif os.path.exists(CURACAO_FILE):
+                self._processar_foto_enviada(message)
     
     def _processar_foto_enviada(self, message):
-        """Processa foto OU vídeo enviado pelo usuário"""
+        """Processa foto enviada pelo usuário"""
         if not os.path.exists(CURACAO_FILE):
             return
         
@@ -1053,193 +1043,64 @@ class TelegramCuratorNoticias:
             data = json.load(f)
         
         if not data.get('aguardando_foto'):
-            self.enviar_mensagem("⚠️ Não estou aguardando mídia. Use o botão 📤")
+            self.enviar_mensagem("⚠️ Não estou aguardando foto. Use o botão 📤")
             return
         
         idx = data['foto_segmento']
         total = len(data['segmentos'])
         num = idx + 1
-
-        # Detectar se é foto ou vídeo
-        eh_video = 'video' in message
-
-        if eh-video:
-            print(f"🎬 Vídeo recebido para segmento {num}")
-            self.enviar_mensagem(f"📥 Baixando seu vídeo...")
-        else:
-            print(f"📸 Foto recebida para segmento {num}")
-            self.enviar_mensagem(f"📥 Baixando sua foto...")
-
-        try:
-            if eh_video:
-                #PROCESSAR VIDEO
-                video_info = message['video']
-                file_id = video_info['file_id']
-                duracao_enviada = video_info.get('duration', 0)
-                duracao_segmento = data['segmentos'][idx].get('duracao', duracao_enviada)
-
-                print(f" Duração vídeo: {duracao_enviada}s | Duração segmento: {duracao_segmento:.1f}s")
-
-                # Obter file_path
-                file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
-                file_response = requests.get(file_info_url, timeout=10)
-                file_data = file_response.json()
-
-                if not file_data.get('ok'):
-                    raise Exception("Erro ao obter info do vídeo")
-
-                file_path = file_data['result']['file_path']
-
-                # Verificar tamanho (Telegram limita a 20MB no bot)
-                file_size = file_data['result'].get('file_size', 0)
-                if file_size > 20 * 1024 * 1024:
-                    self.enviar_mensagem(
-                        "⚠️ Vídeo muito grande para baixar via bot (máx 20MB).\n"
-                        "Use uma foto ou vídeo menor."
-                    )
-                    return
-
-                # Baixar vídeo
-                download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
-                video_response = requests.get(download_url, timeout=60)
-
-                # Salvar vídeo original
-                video_raw = f'{ASSETS_DIR}/custom_video_{num}_raw.mp4'
-                with open(video_raw, 'wb') as f:
-                    f.write(video_response.content)
-
-                print(f"   ✅ Vídeo baixado: {video_raw}")
-                self.enviar_mensagem("⚙️ Processando vídeo...")
-
-                # Processar com MoviePy
-                from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, ColorClip
-                import numpy as np
-
-                clip = VideoFileClip(video_raw)
-
-                # 1. MUTAR o vídeo
-                clip = clip.without_audio()
-                print(f"   🔇 Áudio removido")
-
-                # 2. Redimensionar para 9:16 (1080x1920 para short)
-                clip = clip.resize(height=1920)
-                if clip.w > 1080:
-                    clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
-                elif clip.w < 1080:
-                    # Adicionar barras pretas laterais
-                    from moviepy.editor import clips_array, ColorClip
-                    fundo = ColorClip(size=(1080, 1920), color=(0, 0, 0), duration=clip.duration)
-                    x_pos = (1080 - clip.w) // 2
-                    clip = CompositeVideoClip(
-                        [fundo, clip.set_position((x_pos, (1920 - clip.h) // 2))],
-                        size=(1080, 1920)
-                    )
-
-                if clip.size != (1080, 1920):
-                    clip = clip.resize((1080, 1920))
-
-                print(f"   📐 Redimensionado para 1080x1920")
-
-                # 3. AJUSTAR DURAÇÃO ao segmento
-                if clip.duration > duracao_segmento:
-                    # Vídeo maior que o segmento: cortar
-                    clip = clip.subclip(0, duracao_segmento)
-                    print(f"   ✂️ Cortado para {duracao_segmento:.1f}s")
-
-                elif clip.duration < duracao_segmento:
-                    # Vídeo menor que o segmento: completar com preto
-                    duracao_faltando = duracao_segmento - clip.duration
-                    print(f"   ⬛ Completando {duracao_faltando:.1f}s com preto")
-
-                    fundo_preto = ColorClip(
-                        size=(1080, 1920),
-                        color=(0, 0, 0),
-                        duration=duracao_faltando
-                    )
-
-                    from moviepy.editor import concatenate_videoclips
-                    clip = concatenate_videoclips([clip, fundo_preto])
-
-                print(f"   ⏱️ Duração final: {clip.duration:.1f}s")
-
-                # Salvar vídeo processado
-                midia_filename = f'{ASSETS_DIR}/custom_{num}.mp4'
-                clip.write_videofile(
-                    midia_filename,
-                    fps=30,
-                    codec='libx264',
-                    preset='medium',
-                    bitrate='4000k',
-                    audio=False,
-                    threads=2
-                )
-
-                clip.close()
-
-                # Remover vídeo bruto
-                try:
-                    os.remove(video_raw)
-                except:
-                    pass
-
-                midia_tipo = 'video_local'
-                print(f"   ✅ Vídeo processado: {midia_filename}")
-                self.enviar_mensagem(f"✅ <b>Vídeo processado!</b>\n⏱️ {duracao_segmento:.1f}s | 🔇 Mutado | 📐 1080x1920")
-            
         
-            else:
-                # PROCESSAR FOTO (código original)
-                photo = message['photo'][-1]
-                file_id = photo['file_id']
-
-                file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
-                file_response = requests.get(file_info_url, timeout=10)
-                file_data = file_response.json()
-
-                if not file_data.get('ok'):
-                    raise Exception("Erro ao obter info da foto")
-
-                file_path = file_data['result']['file_path']
-
-                download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
-                foto_response = requests.get(download_url, timeout=15)
-
-                midia_filename = f'{ASSETS_DIR}/custom_{num}.jpg'
-                with open(midia_filename, 'wb') as f:
-                    f.write(foto_response.content)
-
-                midia_tipo = 'foto_local'
-                print(f"   ✅ Foto salva: {midia_filename}")
-                self.enviar_mensagem(f"✅ <b>Foto aplicada!</b>")
-
-            # Atualizar segmento com nova mídia
+        print(f"📸 Foto recebida para segmento {num}")
+        
+        self.enviar_mensagem(f"📥 Baixando sua foto...")
+        
+        try:
+            photo = message['photo'][-1]
+            file_id = photo['file_id']
+            
+            file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
+            file_response = requests.get(file_info_url, timeout=10)
+            file_data = file_response.json()
+            
+            if not file_data.get('ok'):
+                raise Exception("Erro ao obter info do arquivo")
+            
+            file_path = file_data['result']['file_path']
+            download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
+            
+            foto_response = requests.get(download_url, timeout=15)
+            foto_filename = f'{ASSETS_DIR}/custom_{num}.jpg'
+            
+            with open(foto_filename, 'wb') as f:
+                f.write(foto_response.content)
+            
+            print(f"✅ Foto salva: {foto_filename}")
+            
             seg = data['segmentos'][idx]
-            seg['midia'] = (midia_filename, midia_tipo)
+            seg['midia'] = (foto_filename, 'foto_local')
             seg['customizado'] = True
+            
             data['segmentos'][idx] = seg
-
-            # Registrar aprovação
             data['aprovacoes'][str(idx)] = 'aprovado'
-
-            # Avançar
+            
             if idx + 1 < total:
                 data['segmento_atual'] = idx + 1
             else:
                 data['segmento_atual'] = total
-
+            
             data['aguardando_foto'] = False
-
+            
             with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-
+            
+            self.enviar_mensagem(f"✅ <b>Foto customizada aplicada!</b>")
+            
             time.sleep(2)
             self._enviar_proximo_segmento()
-
+            
         except Exception as e:
-            print(f"❌ Erro ao processar mídia: {e}")
-            import traceback
-            traceback.print_exc()
-            self.enviar_mensagem(f"❌ Erro ao processar: {e}\n\nTente enviar uma foto ou vídeo menor.")
+            print(f"❌ Erro ao processar foto: {e}")
+            self.enviar_mensagem(f"❌ Erro ao processar foto: {e}")
     
     def _aprovar_segmento(self, data, num):
         """Aprova segmento"""
