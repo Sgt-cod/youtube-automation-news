@@ -433,7 +433,8 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
         keywords = extrair_keywords_do_texto(segmento)
         
         segmentos_com_tempo.append({
-            'texto': segmento[:50],
+            'texto': segmento[:50],           # Resumo curto (compatibilidade)
+            'texto_completo': segmento,        # ALTERAÇÃO: texto integral do segmento
             'inicio': tempo_atual,
             'duracao': duracao_segmento,
             'keywords': keywords
@@ -451,6 +452,7 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
                 'inicio': seg['inicio'],
                 'duracao': seg['duracao'],
                 'texto': seg['texto'],
+                'texto_completo': seg['texto_completo'],  # ALTERAÇÃO: incluir texto completo
                 'keywords': seg['keywords']
             })
     
@@ -477,8 +479,76 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     
     return midias_sincronizadas
 
+
+# ========================================
+# FUNÇÕES AUXILIARES PARA PROCESSAMENTO DE VÍDEO
+# ========================================
+
+def obter_duracao_video(video_path):
+    """Obtém duração de um arquivo de vídeo em segundos"""
+    try:
+        clip = VideoFileClip(video_path)
+        duracao = clip.duration
+        clip.close()
+        return duracao
+    except Exception as e:
+        print(f"  ⚠️ Não foi possível obter duração do vídeo: {e}")
+        return None
+
+def preparar_clip_video(video_path, duracao_alvo, orientacao='short'):
+    """
+    Carrega e prepara um clip de vídeo, cortando o excedente se necessário.
+    
+    Args:
+        video_path: caminho para o arquivo de vídeo
+        duracao_alvo: duração em segundos que o clip deve ter
+        orientacao: 'short' (1080x1920 vertical) ou 'long' (1920x1080 horizontal)
+    
+    Returns:
+        VideoFileClip preparado e dimensionado, ou None em caso de erro
+    """
+    try:
+        clip = VideoFileClip(video_path)
+        duracao_original = clip.duration
+        
+        print(f"  🎬 Vídeo: {duracao_original:.1f}s | Segmento: {duracao_alvo:.1f}s")
+        
+        # CORTE: se o vídeo for mais longo que o segmento, cortar o excedente
+        if duracao_original > duracao_alvo:
+            print(f"  ✂️ Cortando vídeo de {duracao_original:.1f}s → {duracao_alvo:.1f}s")
+            clip = clip.subclip(0, duracao_alvo)
+        
+        # Redimensionar para o formato correto
+        if orientacao == 'short':
+            # Vertical 1080x1920
+            clip = clip.resize(height=1920)
+            if clip.w > 1080:
+                clip = clip.crop(x_center=clip.w / 2, width=1080, height=1920)
+            elif clip.w < 1080:
+                clip = clip.resize(width=1080)
+            if clip.size != (1080, 1920):
+                clip = clip.resize((1080, 1920))
+        else:
+            # Horizontal 1920x1080
+            clip = clip.resize(height=1080)
+            if clip.w < 1920:
+                clip = clip.resize(width=1920)
+            clip = clip.crop(x_center=clip.w / 2, y_center=clip.h / 2, width=1920, height=1080)
+            if clip.size != (1920, 1080):
+                clip = clip.resize((1920, 1080))
+        
+        # Remover áudio do clip de vídeo (o áudio vem da narração)
+        clip = clip.without_audio()
+        
+        return clip
+        
+    except Exception as e:
+        print(f"  ❌ Erro ao preparar clip de vídeo: {e}")
+        return None
+
+
 def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file, duracao_total):
-    """Cria SHORT SEM legendas"""
+    """Cria SHORT SEM legendas - suporta fotos E vídeos"""
     print(f"📹 Criando short (sem legendas)...")
     
     clips_imagem = []
@@ -490,7 +560,22 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
         duracao_clip = item['duracao']
         
         try:
-            if midia_tipo == 'foto_local' and os.path.exists(midia_info):
+            # ALTERAÇÃO: verificar se é vídeo ou foto
+            if midia_tipo == 'video_local' and os.path.exists(midia_info):
+                # Processar clip de vídeo
+                print(f"  🎬 Clip {i+1}: vídeo → {os.path.basename(midia_info)}")
+                clip = preparar_clip_video(midia_info, duracao_clip, orientacao='short')
+                
+                if clip is None:
+                    print(f"  ⚠️ Falha no vídeo {i+1}, tentando fallback para imagem...")
+                    raise Exception("Falha no clip de vídeo")
+                
+                clip = clip.set_start(inicio)
+                clips_imagem.append(clip)
+                tempo_coberto = max(tempo_coberto, inicio + clip.duration)
+            
+            elif midia_tipo == 'foto_local' and os.path.exists(midia_info):
+                # Processar foto (comportamento original)
                 clip = ImageClip(midia_info, duration=duracao_clip)
                 clip = clip.resize(height=1920)
                 if clip.w > 1080:
@@ -508,7 +593,7 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
                 
         except Exception as e:
-            print(f"  ⚠️ Erro imagem {i}: {e}")
+            print(f"  ⚠️ Erro mídia {i}: {e}")
     
     if tempo_coberto < duracao_total:
         print(f"⚠️ Preenchendo {duracao_total - tempo_coberto:.1f}s")
@@ -567,7 +652,7 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
     return output_file
 
 def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file, duracao_total):
-    """Cria vídeo longo SEM legendas"""
+    """Cria vídeo longo SEM legendas - suporta fotos E vídeos"""
     print(f"📹 Criando vídeo longo...")
     
     clips_imagem = []
@@ -579,7 +664,22 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
         duracao_clip = item['duracao']
         
         try:
-            if midia_tipo == 'foto_local' and os.path.exists(midia_info):
+            # ALTERAÇÃO: verificar se é vídeo ou foto
+            if midia_tipo == 'video_local' and os.path.exists(midia_info):
+                # Processar clip de vídeo
+                print(f"  🎬 Clip {i+1}: vídeo → {os.path.basename(midia_info)}")
+                clip = preparar_clip_video(midia_info, duracao_clip, orientacao='long')
+                
+                if clip is None:
+                    print(f"  ⚠️ Falha no vídeo {i+1}, pulando...")
+                    continue
+                
+                clip = clip.set_start(inicio)
+                clips_imagem.append(clip)
+                tempo_coberto = max(tempo_coberto, inicio + clip.duration)
+            
+            elif midia_tipo == 'foto_local' and os.path.exists(midia_info):
+                # Processar foto (comportamento original)
                 clip = ImageClip(midia_info, duration=duracao_clip)
                 clip = clip.resize(height=1080)
                 if clip.w < 1920:
@@ -887,16 +987,15 @@ def main():
                         print("\n" + "="*60)
                         print("✅ WORKFLOW CONCLUÍDO COM SUCESSO!")
                         print("="*60)
-                        sys.exit(0)  # Finalizar workflow com sucesso
+                        sys.exit(0)
                     else:
                         print("⚠️ Falha ao enviar vídeo")
-                        sys.exit(1)  # Finalizar com erro
+                        sys.exit(1)
                 
                 else:
                     # Vídeo grande: criar release e enviar link
                     print("   📦 Vídeo > 50 MB - criando release no GitHub...")
             
-                    # Importar função de criar release
                     from create_release import criar_release_com_video
             
                     release_info = criar_release_com_video(
@@ -913,7 +1012,6 @@ def main():
                         print(f"   🔗 {download_url}")
                         print(f"   🏷️ Tag: {tag_name}")
                 
-                        # Enviar link via Telegram COM BOTÃO
                         sucesso = curator.enviar_link_download(
                             download_url=download_url,
                             titulo=titulo,
@@ -928,7 +1026,6 @@ def main():
                         if sucesso:
                             print("✅ Link enviado com botão de confirmação!")
                     
-                            # Aguardar confirmação de download (2 horas)
                             print("\n⏳ Aguardando você confirmar o download...")
                             confirmado = curator.aguardar_confirmacao_download(timeout=7200)
                     
@@ -943,7 +1040,6 @@ def main():
                         print("❌ Erro ao criar release")
                         print("   Tentando enviar só metadados...")
                 
-                        # Fallback: enviar só informações
                         curator.enviar_mensagem(
                             f"⚠️ <b>Vídeo muito grande ({tamanho_mb:.2f} MB)</b>\n\n"
                             f"📺 {titulo}\n\n"
