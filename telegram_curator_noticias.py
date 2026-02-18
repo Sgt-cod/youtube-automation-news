@@ -85,14 +85,13 @@ class TelegramCuratorNoticias:
             return None
     
     # ========================================
-    # CURADORIA DE TEMAS (NOVO - VÍDEOS LONGOS)
+    # CURADORIA DE TEMAS (VÍDEOS LONGOS)
     # ========================================
     
     def solicitar_curacao_temas(self, noticias, timeout=3600):
         """Solicita curadoria dos temas (notícias) antes de gerar roteiros"""
         print("📋 Iniciando curadoria de TEMAS...")
         
-        # Limpar HTML de todas as notícias ANTES de salvar
         import re
         noticias_limpas = []
         
@@ -118,7 +117,6 @@ class TelegramCuratorNoticias:
         with open(CURACAO_TEMAS_FILE, 'w', encoding='utf-8') as f:
             json.dump(curacao_data, f, indent=2, ensure_ascii=False)
         
-        # Mensagem inicial SEM formatação HTML
         mensagem_inicial = (
             f"🎬 CURADORIA DE TEMAS - VÍDEO LONGO\n\n"
             f"📰 {len(noticias_limpas)} notícias encontradas\n"
@@ -131,7 +129,6 @@ class TelegramCuratorNoticias:
             f"⏳ Aguardo {timeout//60}min"
         )
         
-        # Enviar SEM parse_mode HTML
         url = f"{self.base_url}/sendMessage"
         data = {
             'chat_id': self.chat_id,
@@ -158,22 +155,7 @@ class TelegramCuratorNoticias:
         return self._aguardar_aprovacao_temas(timeout)
     
     def enviar_link_download(self, download_url, titulo, descricao, tags, url_youtube, duracao, tamanho_mb, tag_name):
-        """
-        Envia link de download do vídeo via Telegram COM BOTÃO DE CONFIRMAÇÃO
-        
-        Args:
-            download_url: URL de download do GitHub Release
-            titulo: título do vídeo
-            descricao: descrição
-            tags: lista de tags
-            url_youtube: URL do vídeo no YouTube
-            duracao: duração em segundos
-            tamanho_mb: tamanho do arquivo em MB
-            tag_name: nome da tag da release (para deletar depois)
-        
-        Returns:
-            bool: True se enviado com sucesso
-        """
+        """Envia link de download do vídeo via Telegram COM BOTÃO DE CONFIRMAÇÃO"""
         print("\n📤 Enviando link de download para Telegram...")
         
         try:
@@ -191,7 +173,6 @@ class TelegramCuratorNoticias:
                 f"💡 Clique no link, baixe o vídeo e depois confirme abaixo"
             )
             
-            # Criar botão de confirmação inline
             keyboard = {
                 'inline_keyboard': [
                     [
@@ -205,7 +186,6 @@ class TelegramCuratorNoticias:
             if resultado:
                 print("✅ Link de download enviado com botão!")
                 
-                # Salvar informações da release para deletar depois
                 release_info = {
                     'tag_name': tag_name,
                     'download_url': download_url,
@@ -216,7 +196,6 @@ class TelegramCuratorNoticias:
                 with open('release_pendente.json', 'w', encoding='utf-8') as f:
                     json.dump(release_info, f, indent=2)
                 
-                # Enviar descrição completa se for muito longa
                 if len(descricao) > 200:
                     self.enviar_mensagem(
                         f"📄 <b>Descrição Completa:</b>\n\n{descricao}"
@@ -234,15 +213,7 @@ class TelegramCuratorNoticias:
             return False
 
     def aguardar_confirmacao_download(self, timeout=7200):
-        """
-        Aguarda confirmação de download via Telegram
-        
-        Args:
-            timeout: tempo máximo de espera em segundos (padrão: 2 horas)
-        
-        Returns:
-            bool: True se confirmado, False se timeout
-        """
+        """Aguarda confirmação de download via Telegram"""
         print(f"\n⏳ Aguardando confirmação de download...")
         print(f"   Timeout: {timeout}s ({timeout//3600}h)")
         
@@ -253,7 +224,6 @@ class TelegramCuratorNoticias:
         inicio = time.time()
         
         while time.time() - inicio < timeout:
-            # Verificar status
             try:
                 with open('release_pendente.json', 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -265,7 +235,6 @@ class TelegramCuratorNoticias:
             except:
                 pass
             
-            # Processar atualizações do Telegram
             self._processar_atualizacoes()
             
             time.sleep(3)
@@ -278,7 +247,7 @@ class TelegramCuratorNoticias:
             "⚠️ Workflow finalizado por timeout."
         )
         time.sleep(2)
-        sys.exit(0)  # Finalizar workflow mesmo com timeout
+        sys.exit(0)
     
     def _enviar_proximo_tema(self):
         """Envia próximo tema para aprovação"""
@@ -620,7 +589,7 @@ class TelegramCuratorNoticias:
         )
     
     # ========================================
-    # CURADORIA DE MÍDIAS (ORIGINAL)
+    # CURADORIA DE MÍDIAS (COM SUPORTE A VÍDEO)
     # ========================================
     
     def solicitar_curacao(self, segmentos_com_midias):
@@ -633,7 +602,7 @@ class TelegramCuratorNoticias:
             'status': 'aguardando',
             'segmento_atual': 0,
             'aprovacoes': {},
-            'aguardando_foto': False,
+            'aguardando_midia': False,   # Aguardando foto OU vídeo do usuário
             'ultimo_envio': None
         }
         
@@ -650,7 +619,8 @@ class TelegramCuratorNoticias:
             f"• <b>/status</b> - Ver progresso\n"
             f"• <b>/pular</b> - Aprovar restantes\n"
             f"• <b>/retomar</b> - Se travar\n\n"
-            f"💡 <b>Pode enviar foto do celular!</b>"
+            f"💡 <b>Pode enviar foto ou vídeo do celular!</b>\n"
+            f"🎬 <b>Vídeos muito longos serão cortados automaticamente</b>"
         )
         
         time.sleep(2)
@@ -658,7 +628,7 @@ class TelegramCuratorNoticias:
         print("✅ Primeira mídia enviada para curadoria")
     
     def _enviar_proximo_segmento(self):
-        """Envia próximo segmento"""
+        """Envia próximo segmento com TEXTO COMPLETO"""
         if not os.path.exists(CURACAO_FILE):
             return False
         
@@ -677,16 +647,35 @@ class TelegramCuratorNoticias:
         num = segmento_atual + 1
         
         midia_info, midia_tipo = seg['midia']
-        texto_seg = seg['texto']
+        # ALTERAÇÃO: usar 'texto_completo' se disponível, senão fallback para 'texto'
+        texto_seg = seg.get('texto_completo', seg.get('texto', ''))
         keywords = seg.get('keywords', [])
+        duracao_seg = seg.get('duracao', 0)
         
-        caption = (
+        # Truncar texto se muito longo para o Telegram (limite ~4096 chars na legenda)
+        # Enviar o texto integral como mensagem separada se necessário
+        texto_exibir = texto_seg
+        texto_extra = None
+        
+        # Legenda tem limite de 1024 chars no Telegram
+        caption_base = (
             f"📌 <b>Segmento {num}/{total}</b>\n\n"
-            f"📝 <i>\"{texto_seg}...\"</i>\n\n"
+            f"⏱️ Duração: {duracao_seg:.1f}s\n"
             f"🔍 Keywords: {', '.join(keywords)}\n"
             f"📁 Pasta: {self._extrair_pasta(midia_info)}\n\n"
-            f"<i>Se travar, use /retomar</i>"
+            f"📝 <b>Roteiro deste segmento:</b>\n"
         )
+        
+        # Calcular espaço restante para o texto do roteiro na legenda
+        espaco_restante = 1024 - len(caption_base) - 100  # 100 chars de margem
+        
+        if len(texto_exibir) > espaco_restante:
+            texto_na_legenda = texto_exibir[:espaco_restante] + "..."
+            texto_extra = texto_exibir  # enviar completo depois
+        else:
+            texto_na_legenda = texto_exibir
+        
+        caption = caption_base + f"<i>{texto_na_legenda}</i>"
         
         keyboard = {
             'inline_keyboard': [
@@ -695,7 +684,7 @@ class TelegramCuratorNoticias:
                     {'text': '🔄 Buscar outra', 'callback_data': f'buscar_{num}'}
                 ],
                 [
-                    {'text': '📤 Enviar minha foto', 'callback_data': f'foto_{num}'}
+                    {'text': '📤 Enviar foto/vídeo', 'callback_data': f'midia_{num}'}
                 ]
             ]
         }
@@ -707,6 +696,15 @@ class TelegramCuratorNoticias:
             data['ultimo_envio'] = datetime.now().isoformat()
             with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            # Enviar texto completo como mensagem adicional se foi truncado
+            if texto_extra:
+                time.sleep(1)
+                self.enviar_mensagem(
+                    f"📄 <b>Roteiro completo do segmento {num}:</b>\n\n"
+                    f"<i>{texto_extra}</i>"
+                )
+            
             print(f"✅ Segmento {num} enviado")
             return True
         else:
@@ -849,7 +847,7 @@ class TelegramCuratorNoticias:
         callback_data = callback['data']
         callback_id = callback['id']
         
-        # Processar confirmação de download
+        # Confirmação de download
         if callback_data.startswith('download_ok_'):
             tag_name = callback_data.replace('download_ok_', '')
             print(f"\n✅ CONFIRMAÇÃO DE DOWNLOAD RECEBIDA")
@@ -857,7 +855,6 @@ class TelegramCuratorNoticias:
             
             self._responder_callback(callback_id, "✅ Download confirmado!")
             
-            # Atualizar arquivo
             try:
                 with open('release_pendente.json', 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -870,13 +867,11 @@ class TelegramCuratorNoticias:
                 
                 self.enviar_mensagem("✅ <b>Download confirmado!</b>\n\n🗑️ Deletando release do GitHub...")
                 
-                # Deletar release
                 from create_release import deletar_release
                 
                 if deletar_release(tag_name):
                     self.enviar_mensagem("✅ Release deletada com sucesso!\n\n💾 Espaço liberado no repositório.\n\n🎉 Workflow finalizado!")
                     
-                    # Limpar arquivo
                     try:
                         os.remove('release_pendente.json')
                     except:
@@ -886,17 +881,17 @@ class TelegramCuratorNoticias:
                     print("✅ WORKFLOW CONCLUÍDO COM SUCESSO!")
                     print("="*60)
                     time.sleep(2)
-                    sys.exit(0)  # Finalizar workflow com sucesso
+                    sys.exit(0)
                 else:
                     self.enviar_mensagem("⚠️ Erro ao deletar release. Delete manualmente se necessário.\n\n⚠️ Workflow finalizado com aviso.")
                     time.sleep(2)
-                    sys.exit(0)  # Finalizar mesmo com erro na deleção
+                    sys.exit(0)
                     
             except Exception as e:
                 print(f"❌ Erro ao processar confirmação: {e}")
                 self.enviar_mensagem(f"❌ Erro: {e}\n\n⚠️ Workflow finalizado com erro.")
                 time.sleep(2)
-                sys.exit(1)  # Finalizar com código de erro
+                sys.exit(1)
             return
         
         if callback_data.startswith('tema_'):
@@ -924,9 +919,10 @@ class TelegramCuratorNoticias:
             num = int(callback_data.split('_')[1])
             self._buscar_nova_midia(data, num)
         
-        elif callback_data.startswith('foto_'):
+        elif callback_data.startswith('midia_'):
+            # ALTERAÇÃO: botão unificado para foto ou vídeo
             num = int(callback_data.split('_')[1])
-            self._solicitar_foto(data, num)
+            self._solicitar_midia(data, num)
     
     def _processar_mensagem(self, message):
         """Processa mensagens"""
@@ -941,7 +937,7 @@ class TelegramCuratorNoticias:
                 self.enviar_mensagem(
                     "👋 <b>Curador de Notícias</b>\n\n"
                     "Enviarei temas e mídias para você aprovar.\n"
-                    "Você pode enviar fotos do celular!\n\n"
+                    "Você pode enviar fotos ou vídeos do celular!\n\n"
                     "Aguarde próxima execução."
                 )
             return
@@ -949,7 +945,7 @@ class TelegramCuratorNoticias:
         with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        print(f"📩 Comando: {text}")
+        print(f"📩 Comando/mensagem recebido: {text[:50] if text else '(mídia)'}")
         
         if text == '/cancelar':
             print("🛑 CANCELAR TUDO")
@@ -1026,38 +1022,62 @@ class TelegramCuratorNoticias:
             else:
                 self.enviar_mensagem("❌ Todos enviados")
         
+        # ALTERAÇÃO: processar tanto foto quanto vídeo
         elif 'photo' in message:
             thumbnail_file = 'thumbnail_pendente.json'
             
             if os.path.exists(thumbnail_file):
                 self._processar_thumbnail(message)
-            elif os.path.exists(CURACAO_FILE):
-                self._processar_foto_enviada(message)
+            elif os.path.exists(CURACAO_FILE) and data.get('aguardando_midia'):
+                self._processar_midia_enviada(message, tipo='foto')
+        
+        elif 'video' in message or 'document' in message:
+            # Vídeo enviado como arquivo ou como document (para não comprimir)
+            if os.path.exists(CURACAO_FILE) and data.get('aguardando_midia'):
+                self._processar_midia_enviada(message, tipo='video')
     
-    def _processar_foto_enviada(self, message):
-        """Processa foto enviada pelo usuário"""
+    def _processar_midia_enviada(self, message, tipo='foto'):
+        """Processa foto ou vídeo enviado pelo usuário"""
         if not os.path.exists(CURACAO_FILE):
             return
         
         with open(CURACAO_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        if not data.get('aguardando_foto'):
-            self.enviar_mensagem("⚠️ Não estou aguardando foto. Use o botão 📤")
+        if not data.get('aguardando_midia'):
+            self.enviar_mensagem("⚠️ Não estou aguardando mídia. Use o botão 📤")
             return
         
-        idx = data['foto_segmento']
+        idx = data['midia_segmento']
         total = len(data['segmentos'])
         num = idx + 1
         
-        print(f"📸 Foto recebida para segmento {num}")
+        print(f"📸 {'Foto' if tipo == 'foto' else 'Vídeo'} recebido para segmento {num}")
         
-        self.enviar_mensagem(f"📥 Baixando sua foto...")
+        self.enviar_mensagem(f"📥 Baixando sua {'foto' if tipo == 'foto' else 'vídeo'}...")
         
         try:
-            photo = message['photo'][-1]
-            file_id = photo['file_id']
+            if tipo == 'foto':
+                # Processar foto
+                photo = message['photo'][-1]
+                file_id = photo['file_id']
+                extensao = '.jpg'
+                midia_tipo_final = 'foto_local'
+            else:
+                # Processar vídeo - verificar se veio como 'video' ou 'document'
+                if 'video' in message:
+                    video_info = message['video']
+                    file_id = video_info['file_id']
+                elif 'document' in message:
+                    doc_info = message['document']
+                    file_id = doc_info['file_id']
+                else:
+                    self.enviar_mensagem("❌ Tipo de arquivo não reconhecido.")
+                    return
+                extensao = '.mp4'
+                midia_tipo_final = 'video_local'
             
+            # Obter info do arquivo
             file_info_url = f"{self.base_url}/getFile?file_id={file_id}"
             file_response = requests.get(file_info_url, timeout=10)
             file_data = file_response.json()
@@ -1068,16 +1088,21 @@ class TelegramCuratorNoticias:
             file_path = file_data['result']['file_path']
             download_url = f"https://api.telegram.org/file/bot{self.bot_token}/{file_path}"
             
-            foto_response = requests.get(download_url, timeout=15)
-            foto_filename = f'{ASSETS_DIR}/custom_{num}.jpg'
+            # Download do arquivo (timeout maior para vídeos)
+            timeout_download = 60 if tipo == 'foto' else 300
+            midia_response = requests.get(download_url, timeout=timeout_download)
             
-            with open(foto_filename, 'wb') as f:
-                f.write(foto_response.content)
+            midia_filename = f'{ASSETS_DIR}/custom_{num}{extensao}'
             
-            print(f"✅ Foto salva: {foto_filename}")
+            with open(midia_filename, 'wb') as f:
+                f.write(midia_response.content)
             
+            tamanho_mb = os.path.getsize(midia_filename) / (1024 * 1024)
+            print(f"✅ {'Foto' if tipo == 'foto' else 'Vídeo'} salvo: {midia_filename} ({tamanho_mb:.1f} MB)")
+            
+            # Atualizar segmento
             seg = data['segmentos'][idx]
-            seg['midia'] = (foto_filename, 'foto_local')
+            seg['midia'] = (midia_filename, midia_tipo_final)
             seg['customizado'] = True
             
             data['segmentos'][idx] = seg
@@ -1088,19 +1113,32 @@ class TelegramCuratorNoticias:
             else:
                 data['segmento_atual'] = total
             
-            data['aguardando_foto'] = False
+            data['aguardando_midia'] = False
             
             with open(CURACAO_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             
-            self.enviar_mensagem(f"✅ <b>Foto customizada aplicada!</b>")
+            if tipo == 'video':
+                duracao_seg = seg.get('duracao', 0)
+                self.enviar_mensagem(
+                    f"✅ <b>Vídeo recebido!</b>\n\n"
+                    f"📏 Duração do segmento: {duracao_seg:.1f}s\n"
+                    f"✂️ Se o vídeo for mais longo, será cortado automaticamente"
+                )
+            else:
+                self.enviar_mensagem(f"✅ <b>Foto aplicada ao segmento {num}!</b>")
             
             time.sleep(2)
             self._enviar_proximo_segmento()
             
         except Exception as e:
-            print(f"❌ Erro ao processar foto: {e}")
-            self.enviar_mensagem(f"❌ Erro ao processar foto: {e}")
+            print(f"❌ Erro ao processar mídia: {e}")
+            self.enviar_mensagem(f"❌ Erro ao processar: {e}\n\nTente novamente ou use /retomar")
+    
+    # Mantido para compatibilidade retroativa
+    def _processar_foto_enviada(self, message):
+        """Compatibilidade - chama o novo método unificado"""
+        self._processar_midia_enviada(message, tipo='foto')
     
     def _aprovar_segmento(self, data, num):
         """Aprova segmento"""
@@ -1161,18 +1199,24 @@ class TelegramCuratorNoticias:
                 time.sleep(2)
                 self._enviar_proximo_segmento()
             else:
-                self.enviar_mensagem("⚠️ Sem mais imagens nesta pasta. Use 📤!")
+                self.enviar_mensagem("⚠️ Sem mais imagens nesta pasta. Use 📤 para enviar foto ou vídeo!")
         
         except Exception as e:
             print(f"❌ Erro: {e}")
-            self.enviar_mensagem(f"❌ Erro. Use 📤 Enviar foto!")
+            self.enviar_mensagem(f"❌ Erro. Use 📤 Enviar foto/vídeo!")
     
-    def _solicitar_foto(self, data, num):
-        """Solicita foto do usuário"""
+    def _solicitar_midia(self, data, num):
+        """Solicita foto ou vídeo do usuário"""
         idx = num - 1
         
-        print(f"📤 Solicitar foto para {num}")
+        print(f"📤 Solicitar mídia para segmento {num}")
         
+        duracao_seg = data['segmentos'][idx].get('duracao', 0)
+        
+        # ALTERAÇÃO: flag renomeada de aguardando_foto para aguardando_midia
+        data['aguardando_midia'] = True
+        data['midia_segmento'] = idx
+        # Manter compatibilidade com código antigo que verifica aguardando_foto
         data['aguardando_foto'] = True
         data['foto_segmento'] = idx
         
@@ -1180,11 +1224,18 @@ class TelegramCuratorNoticias:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
         self.enviar_mensagem(
-            f"📤 <b>Envie sua foto agora</b>\n\n"
-            f"📱 Escolha uma foto da galeria\n"
-            f"📸 Ou tire uma foto\n\n"
+            f"📤 <b>Envie sua mídia agora</b>\n\n"
+            f"🖼️ <b>Foto:</b> envie normalmente pela galeria\n"
+            f"🎬 <b>Vídeo:</b> envie como arquivo para melhor qualidade\n\n"
+            f"⏱️ <b>Duração deste segmento: {duracao_seg:.1f}s</b>\n"
+            f"✂️ Vídeos mais longos serão cortados automaticamente\n\n"
             f"💡 Será usada no segmento {num}"
         )
+    
+    # Mantido para compatibilidade retroativa
+    def _solicitar_foto(self, data, num):
+        """Compatibilidade - chama o novo método unificado"""
+        self._solicitar_midia(data, num)
     
     def _responder_callback(self, callback_id, texto):
         """Responde callback"""
@@ -1335,9 +1386,7 @@ class TelegramCuratorNoticias:
             self.enviar_mensagem(f"❌ Erro ao processar thumbnail: {e}")
     
     def enviar_video_publicado(self, video_path, titulo, descricao, tags, url_youtube):
-        """
-        Envia vídeo completo + metadados para o Telegram após publicação
-        """
+        """Envia vídeo completo + metadados para o Telegram após publicação"""
         print("\n📤 Enviando vídeo para Telegram...")
         
         if not os.path.exists(video_path):
@@ -1345,7 +1394,6 @@ class TelegramCuratorNoticias:
             return False
         
         try:
-            # Preparar caption
             tags_str = ", ".join(tags) if isinstance(tags, list) else tags
             
             caption = (
@@ -1357,7 +1405,6 @@ class TelegramCuratorNoticias:
                 f"💾 Arquivo MP4 em anexo para publicação no TikTok"
             )
             
-            # Enviar vídeo
             url = f"{self.base_url}/sendVideo"
             
             with open(video_path, 'rb') as video_file:
