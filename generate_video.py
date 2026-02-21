@@ -362,15 +362,19 @@ def buscar_imagens_local(keywords, quantidade=1):
     
     try:
         if os.path.exists(pasta_completa):
-            arquivos = [f for f in os.listdir(pasta_completa) 
-                       if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            arquivos_foto = [f for f in os.listdir(pasta_completa)
+                     if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            arquivos_video = [f for f in os.listdir(pasta_completa)
+                      if f.lower().endswith(('.mp4', '.mov', '.avi', '.mkv'))]
+            arquivos = arquivos_foto + arquivos_video
             
             if arquivos:
                 random.shuffle(arquivos)
                 for arquivo in arquivos[:quantidade]:
                     caminho_completo = os.path.join(pasta_completa, arquivo)
                     if os.path.exists(caminho_completo):
-                        midias.append((caminho_completo, 'foto_local'))
+                        tipo = 'video_local' if arquivo.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')) else 'foto_local'
+                        midias.append((caminho_completo, tipo))
                 
                 if midias:
                     print(f"  ✅ {len(midias)} imagem(ns)")
