@@ -317,6 +317,31 @@ def buscar_imagens_local(keywords, quantidade=1):
         'haddad': 'politicos/fernando_haddad',
         'tarcisio': 'politicos/tarcisio_de_freitas',
         'tarcísio': 'politicos/tarcisio_de_freitas',
+        'carmen': 'politicos/carmen_lucia',
+        'alcolumbre': 'politicos/davi_alcolumbre',
+        'toffoli': 'politicos/dias_toffoli',
+        'dilma': 'politicos/dilma_roussef',
+        'trump': 'politicos/donald_trump',
+        'dino': 'politicos/flavio_dino',
+        'alckmin': 'politicos/geraldo_alckmin',
+        'gilmar': 'politicos/gilmar_mendes',
+        'hugo': 'politicos/hugo_mota',
+        'milei': 'politicos/javier_milei',
+        'barroso': 'politicos/luis_roberto_barroso',
+        'macron': 'politicos/macron',
+        'biden': 'politicos/joe_biden',
+        'bukele': 'politicos/nayib_bukele',
+        'netanyahu': 'politicos/netanyahu',
+        'maduro': 'politicos/nicolas_maduro',
+        'putin': 'politicos/putin',
+        'jinping': 'politicos/xi_jinping',
+        'zanin': 'politicos/zanin',
+        'fux': 'politicos/fux',
+        'fachin': 'politicos/fachin',
+        'mendonça': 'politicos/mendonça',
+        'nunes': 'politicos/nunes',
+        
+        
     }
     
     mapa_instituicoes = {
