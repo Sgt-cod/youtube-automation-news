@@ -354,6 +354,18 @@ def buscar_imagens_local(keywords, quantidade=1):
         'planalto': 'instituicoes/palacio_do_planalto',
         'brasilia': 'instituicoes/brasilia',
         'brasília': 'instituicoes/brasilia',
+        'banco central': 'instituicoes/banco_central',
+        'casa branca': 'instituicoes/casa_branca',
+        'cia': 'instituicoes/cia',
+        'esplanada': 'instituicoes/esplanada_dos_ministérios',
+        'fbi': 'instituicoes/fbi',
+        'mi6': 'instituicoes/mi6',
+        'mossad': 'instituicoes/mossad',
+        'nsa': 'instituicoes/nsa',
+        'otan': 'instituicoes/otan',
+        'policia federal': 'instituicoes/policia_federal',
+        'tribunal de contas': 'instituicoes/tribunal_de_contas',
+        'estados unidos': 'instituicoes/casa_branca',
     }
     
     midias = []
