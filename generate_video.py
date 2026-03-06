@@ -340,6 +340,8 @@ def buscar_imagens_local(keywords, quantidade=1):
         'fachin': 'politicos/fachin',
         'mendonça': 'politicos/mendonça',
         'nunes': 'politicos/nunes',
+        'vorcaro': 'politicos/vorcaro',
+        'zettel': 'politicos/zettel',
         
         
     }
