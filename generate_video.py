@@ -997,6 +997,20 @@ def main():
             json.dump(logs, f, indent=2, ensure_ascii=False)
         
         print(f"✅ Publicado!\n🔗 {url}")
+
+        # ── Distribuição multiplataforma ──────────────────────
+try:
+    from distribuidor import distribuir
+    distribuir(
+        titulo=titulo,
+        roteiro=roteiro,
+        url_youtube=url,
+        tags=tags,
+        thumbnail_path=thumbnail_path
+    )
+except Exception as e:
+    print(f"⚠️ Distribuição falhou (não crítico): {e}")
+# ─────────────────────────────────────────────────────
         
         # ENVIAR VÍDEO PARA TELEGRAM
         if USAR_CURACAO:
