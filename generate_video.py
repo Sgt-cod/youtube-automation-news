@@ -322,7 +322,8 @@ def buscar_imagens_local(keywords, quantidade=1):
         'toffoli': 'politicos/dias_toffoli',
         'dilma': 'politicos/dilma_roussef',
         'trump': 'politicos/donald_trump',
-        'dino': 'politicos/flavio_dino',
+        'dino': 'politicos/dino',
+        'flavio': 'politicos/flavio',
         'alckmin': 'politicos/geraldo_alckmin',
         'gilmar': 'politicos/gilmar_mendes',
         'hugo': 'politicos/hugo_mota',
@@ -996,9 +997,36 @@ def main():
         with open(log_file, 'w', encoding='utf-8') as f:
             json.dump(logs, f, indent=2, ensure_ascii=False)
         
+        # ============================================================
+# SUBSTITUA o trecho a partir de "print(f"✅ Publicado!\n🔗 {url}")"
+# até o final da função main() pelo código abaixo
+# ============================================================
+
         print(f"✅ Publicado!\n🔗 {url}")
 
-        # ── Distribuição multiplataforma ──────────────────────
+        # Log
+        log_entry = {
+            'data': datetime.now().isoformat(),
+            'tipo': VIDEO_TYPE,
+            'tema': titulo_video,
+            'titulo': titulo,
+            'duracao': duracao,
+            'video_id': video_id,
+            'url': url,
+            'com_legendas': False,
+            'com_thumbnail_custom': thumbnail_path is not None
+        }
+
+        log_file = 'videos_gerados.json'
+        logs = []
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
+                logs = json.load(f)
+        logs.append(log_entry)
+        with open(log_file, 'w', encoding='utf-8') as f:
+            json.dump(logs, f, indent=2, ensure_ascii=False)
+
+        # ── 1. DISTRIBUIÇÃO MULTIPLATAFORMA (Telegram Canal + Blogger) ──
         try:
             from distribuidor import distribuir
             distribuir(
@@ -1010,25 +1038,22 @@ def main():
             )
         except Exception as e:
             print(f"⚠️ Distribuição falhou (não crítico): {e}")
-# ─────────────────────────────────────────────────────
-        
-        # ENVIAR VÍDEO PARA TELEGRAM
+            import traceback
+            traceback.print_exc()
+
+        # ── 2. ENVIO DO ARQUIVO DE VÍDEO PARA O BOT PESSOAL (curadoria) ──
         if USAR_CURACAO:
             print("\n" + "="*60)
-            print("📱 ENVIANDO PARA TELEGRAM")
+            print("📱 ENVIANDO PARA TELEGRAM (bot pessoal)")
             print("="*60)
-    
+
             try:
                 curator = TelegramCuratorNoticias()
-        
-                # Verificar tamanho do vídeo
                 tamanho_mb = os.path.getsize(video_path) / (1024 * 1024)
                 print(f"   📦 Tamanho do vídeo: {tamanho_mb:.2f} MB")
-        
+
                 if tamanho_mb <= 50:
-                    # Vídeo pequeno: enviar arquivo direto
                     print("   📤 Vídeo ≤ 50 MB - enviando arquivo direto...")
-            
                     sucesso = curator.enviar_video_publicado(
                         video_path=video_path,
                         titulo=titulo,
@@ -1036,37 +1061,25 @@ def main():
                         tags=tags,
                         url_youtube=url
                     )
-            
                     if sucesso:
-                        print("✅ Vídeo enviado diretamente!")
-                        print("\n" + "="*60)
-                        print("✅ WORKFLOW CONCLUÍDO COM SUCESSO!")
-                        print("="*60)
-                        sys.exit(0)
+                        print("✅ Vídeo enviado ao bot pessoal!")
                     else:
-                        print("⚠️ Falha ao enviar vídeo")
-                        sys.exit(1)
-                
+                        print("⚠️ Falha ao enviar vídeo ao bot pessoal")
+
                 else:
-                    # Vídeo grande: criar release e enviar link
                     print("   📦 Vídeo > 50 MB - criando release no GitHub...")
-            
                     from create_release import criar_release_com_video
-            
                     release_info = criar_release_com_video(
                         video_path=video_path,
                         titulo=titulo,
                         descricao=descricao
                     )
-            
+
                     if release_info:
                         download_url = release_info['download_url']
                         tag_name = release_info['tag_name']
-                
-                        print("   ✅ Release criada!")
-                        print(f"   🔗 {download_url}")
-                        print(f"   🏷️ Tag: {tag_name}")
-                
+                        print(f"   ✅ Release criada! 🔗 {download_url}")
+
                         sucesso = curator.enviar_link_download(
                             download_url=download_url,
                             titulo=titulo,
@@ -1077,40 +1090,37 @@ def main():
                             tamanho_mb=tamanho_mb,
                             tag_name=tag_name
                         )
-                
+
                         if sucesso:
-                            print("✅ Link enviado com botão de confirmação!")
-                    
-                            print("\n⏳ Aguardando você confirmar o download...")
+                            print("✅ Link enviado! Aguardando confirmação de download...")
                             confirmado = curator.aguardar_confirmacao_download(timeout=7200)
-                    
                             if confirmado:
-                                print("✅ Download confirmado! Release será deletada.")
+                                print("✅ Download confirmado!")
                             else:
                                 print("⏰ Timeout - release permanecerá no GitHub")
-                                print("   💡 Delete manualmente se já baixou: Settings > Releases")
-                        else:
-                            print("⚠️ Falha ao enviar link")
                     else:
                         print("❌ Erro ao criar release")
-                        print("   Tentando enviar só metadados...")
-                
                         curator.enviar_mensagem(
                             f"⚠️ <b>Vídeo muito grande ({tamanho_mb:.2f} MB)</b>\n\n"
-                            f"📺 {titulo}\n\n"
-                            f"🔗 YouTube: {url}\n\n"
-                            f"📁 Vídeo disponível nos GitHub Actions Artifacts por 7 dias"
+                            f"📺 {titulo}\n🔗 YouTube: {url}\n\n"
+                            f"📁 Disponível nos GitHub Actions Artifacts por 7 dias"
                         )
-        
+
             except Exception as e:
-                print(f"⚠️ Erro ao processar envio: {e}")
+                print(f"⚠️ Erro ao enviar para bot pessoal: {e}")
                 import traceback
                 traceback.print_exc()
-        
+
     except Exception as e:
-        print(f"❌ Erro no upload: {e}")
+        print(f"❌ Erro no upload YouTube: {e}")
         import traceback
         traceback.print_exc()
+
+    # ── ENCERRAMENTO LIMPO (sem sys.exit, deixa o workflow terminar) ──
+    print("\n" + "="*60)
+    print("✅ WORKFLOW CONCLUÍDO")
+    print("="*60)
+
 
 if __name__ == '__main__':
     main()
