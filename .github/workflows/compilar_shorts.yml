@@ -1,0 +1,69 @@
+name: Compilação Semanal de Shorts
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'   # Segunda-feira às 10h BRT (13h UTC)
+  workflow_dispatch:         # Permite rodar manualmente
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar FFmpeg, ImageMagick e fontes
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg imagemagick fonts-dejavu-core
+
+      - name: Instalar yt-dlp
+        run: |
+          pip install yt-dlp
+
+      - name: Instalar dependências Python
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Rodar compilação semanal
+        env:
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CREDENTIALS:  ${{ secrets.YOUTUBE_CREDENTIALS }}
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CANAL_ID:    ${{ secrets.TELEGRAM_CANAL_ID }}
+          BLOGGER_BLOG_ID:      ${{ secrets.BLOGGER_BLOG_ID }}
+          BLOGGER_CREDENTIALS:  ${{ secrets.BLOGGER_CREDENTIALS }}
+          PIX_CHAVE:            ${{ secrets.PIX_CHAVE }}
+          CANAL_YOUTUBE_URL:    ${{ secrets.CANAL_YOUTUBE_URL }}
+          GITHUB_TOKEN:         ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY:    ${{ github.repository }}
+        run: python compilar_shorts.py
+
+      - name: Commit log atualizado
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add videos_gerados.json
+          git diff --staged --quiet || git commit -m "📺 Compilação semanal - $(date +'%Y-%m-%d')"
+          git push || echo "Nada para commitar"
+
+      - name: Upload compilação como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: compilacao-semanal-${{ github.run_number }}
+          path: videos/compilacao_*.mp4
+          retention-days: 7
