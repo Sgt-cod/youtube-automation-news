@@ -305,8 +305,23 @@ Retorne APENAS palavras separadas por vírgula."""
         palavras = texto.lower().split()
         return [p for p in palavras if len(p) > 4][:3]
 
+# ============================================================
+# SUBSTITUA a função buscar_imagens_local() inteira no
+# generate_video.py por esta versão corrigida
+# ============================================================
+
 def buscar_imagens_local(keywords, quantidade=1):
-    """Busca imagens no banco local"""
+    """
+    Busca imagens no banco local.
+    
+    Lógica nova (problema 3 corrigido):
+    - Recebe o texto completo do segmento (não só 3 palavras)
+    - Varre palavra por palavra do início ao fim
+    - Ignora palavras com 2 caracteres ou menos
+    - Usa a PRIMEIRA palavra que tiver match no mapa de políticos ou instituições
+    - Só recorre a 'genericas' se nenhuma palavra do segmento inteiro tiver match
+    """
+
     mapa_politicos = {
         'lula': 'politicos/lula',
         'bolsonaro': 'politicos/bolsonaro',
@@ -343,10 +358,8 @@ def buscar_imagens_local(keywords, quantidade=1):
         'nunes': 'politicos/nunes',
         'vorcaro': 'politicos/vorcaro',
         'zettel': 'politicos/zettel',
-        
-        
     }
-    
+
     mapa_instituicoes = {
         'congresso': 'instituicoes/congresso_nacional',
         'stf': 'instituicoes/stf',
@@ -367,75 +380,98 @@ def buscar_imagens_local(keywords, quantidade=1):
         'policia federal': 'instituicoes/policia_federal',
         'tribunal de contas': 'instituicoes/tribunal_de_contas',
         'estados unidos': 'instituicoes/casa_branca',
+        'israel': 'instituicoes/israel',
+        'iran': 'instituicoes/ira',
+        'irã': 'instituicoes/ira',
     }
-    
+
     midias = []
-    
-    if isinstance(keywords, str):
-        keywords = [keywords]
-    
-    keywords_lower = [k.lower() for k in keywords]
-    keywords_texto = ' '.join(keywords_lower)
-    
+
+    # ── Normalizar entrada ───────────────────────────────────────────────────
+    # keywords pode ser lista (compatibilidade antiga) ou string (texto completo)
+    if isinstance(keywords, list):
+        texto_completo = ' '.join(keywords)
+    else:
+        texto_completo = keywords
+
+    # ── Extrair palavras válidas (> 2 caracteres, sem pontuação) ────────────
+    import re as _re
+    palavras = _re.findall(r'[a-záàãâéêíóôõúüçñ]+', texto_completo.lower())
+    palavras_validas = [p for p in palavras if len(p) > 2]
+
+    print(f"  🔍 Buscando em {len(palavras_validas)} palavras do segmento...")
+
     pasta_encontrada = None
-    
-    for termo, pasta in mapa_politicos.items():
-        if termo in keywords_texto:
-            pasta_encontrada = pasta
-            print(f"  📁 Político: {termo} → {pasta}")
+
+    # ── Verificar termos compostos primeiro (2 palavras) ────────────────────
+    # Ex: "casa branca", "banco central", "policia federal"
+    termos_compostos = {**{k: v for k, v in mapa_instituicoes.items() if ' ' in k}}
+    for i in range(len(palavras_validas) - 1):
+        bigrama = palavras_validas[i] + ' ' + palavras_validas[i+1]
+        if bigrama in termos_compostos:
+            pasta_encontrada = termos_compostos[bigrama]
+            print(f"  📁 Match composto: '{bigrama}' → {pasta_encontrada}")
             break
-    
+
+    # ── Varrer palavra por palavra se não achou termo composto ──────────────
     if not pasta_encontrada:
-        for termo, pasta in mapa_instituicoes.items():
-            if termo in keywords_texto:
-                pasta_encontrada = pasta
-                print(f"  📁 Instituição: {termo} → {pasta}")
+        for palavra in palavras_validas:
+            # Testa políticos primeiro (mais específico)
+            if palavra in mapa_politicos:
+                pasta_encontrada = mapa_politicos[palavra]
+                print(f"  📁 Político: '{palavra}' → {pasta_encontrada}")
                 break
-    
+            # Depois instituições
+            if palavra in mapa_instituicoes:
+                pasta_encontrada = mapa_instituicoes[palavra]
+                print(f"  📁 Instituição: '{palavra}' → {pasta_encontrada}")
+                break
+
+    # ── Fallback para genéricas ──────────────────────────────────────────────
     if not pasta_encontrada:
         pasta_encontrada = 'genericas'
-        print(f"  📁 Genérica")
-    
+        print(f"  📁 Sem match — usando genéricas")
+
+    # ── Buscar arquivos na pasta encontrada ─────────────────────────────────
     pasta_completa = f'{ASSETS_DIR}/{pasta_encontrada}'
-    
-    try:
-        if os.path.exists(pasta_completa):
-            arquivos_foto = [f for f in os.listdir(pasta_completa)
-                     if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-            arquivos_video = [f for f in os.listdir(pasta_completa)
-                      if f.lower().endswith(('.mp4', '.mov', '.avi', '.mkv'))]
-            arquivos = arquivos_foto + arquivos_video
-            
-            if arquivos:
-                random.shuffle(arquivos)
-                for arquivo in arquivos[:quantidade]:
-                    caminho_completo = os.path.join(pasta_completa, arquivo)
-                    if os.path.exists(caminho_completo):
-                        tipo = 'video_local' if arquivo.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')) else 'foto_local'
-                        midias.append((caminho_completo, tipo))
-                
-                if midias:
-                    print(f"  ✅ {len(midias)} imagem(ns)")
-                    return midias
-    except Exception as e:
-        print(f"  ⚠️ Erro: {e}")
-    
-    if not midias and pasta_encontrada != 'genericas':
-        pasta_completa = f'{ASSETS_DIR}/genericas'
+
+    def _buscar_em_pasta(pasta):
+        """Retorna lista de mídias de uma pasta."""
+        resultado = []
+        if not os.path.exists(pasta):
+            return resultado
         try:
-            if os.path.exists(pasta_completa):
-                arquivos = [f for f in os.listdir(pasta_completa) 
-                           if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-                
-                if arquivos:
-                    random.shuffle(arquivos)
-                    for arquivo in arquivos[:quantidade]:
-                        caminho_completo = os.path.join(pasta_completa, arquivo)
-                        if os.path.exists(caminho_completo):
-                            midias.append((caminho_completo, 'foto_local'))
-        except:
-            pass
-    
+            arquivos_foto  = [f for f in os.listdir(pasta)
+                              if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            arquivos_video = [f for f in os.listdir(pasta)
+                              if f.lower().endswith(('.mp4', '.mov', '.avi', '.mkv'))]
+            arquivos = arquivos_foto + arquivos_video
+            random.shuffle(arquivos)
+            for arquivo in arquivos[:quantidade]:
+                caminho = os.path.join(pasta, arquivo)
+                if os.path.exists(caminho):
+                    tipo = ('video_local'
+                            if arquivo.lower().endswith(('.mp4', '.mov', '.avi', '.mkv'))
+                            else 'foto_local')
+                    resultado.append((caminho, tipo))
+        except Exception as e:
+            print(f"  ⚠️ Erro ao listar pasta {pasta}: {e}")
+        return resultado
+
+    midias = _buscar_em_pasta(pasta_completa)
+
+    if midias:
+        print(f"  ✅ {len(midias)} mídia(s) encontrada(s) em '{pasta_encontrada}'")
+        return midias
+
+    # ── Se pasta específica estava vazia, tenta genéricas ───────────────────
+    if pasta_encontrada != 'genericas':
+        print(f"  ⚠️ Pasta '{pasta_encontrada}' vazia — tentando genéricas")
+        midias = _buscar_em_pasta(f'{ASSETS_DIR}/genericas')
+
+    if not midias:
+        print(f"  ❌ Nenhuma mídia encontrada")
+
     return midias
 
 def buscar_midias_final(keywords, quantidade=1):
