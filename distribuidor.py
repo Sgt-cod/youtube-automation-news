@@ -51,7 +51,12 @@ KIRVANO_URL                 = os.environ.get('KIRVANO_URL', '')
 
 LOGO_PATH = 'logo_canal55.png'   # logo na raiz do repositório
 
-
+def _limpar_titulo(titulo: str) -> str:
+    """Remove sufixos de plataforma do título para exibição externa."""
+    import re
+    titulo = re.sub(r'\s*#shorts?\s*$', '', titulo, flags=re.IGNORECASE)
+    titulo = re.sub(r'\s*#short\s*$',  '', titulo, flags=re.IGNORECASE)
+    return titulo.strip()
 # ════════════════════════════════════════════════════════════════════════════
 # THUMBNAIL — imagem Canal 55 com fundo + título + logo
 # ════════════════════════════════════════════════════════════════════════════
