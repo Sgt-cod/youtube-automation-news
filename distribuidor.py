@@ -547,4 +547,4 @@ def distribuir(titulo: str, roteiro: str, url_youtube: str, tags: list,
     print(f"  🐦  Twitter/X  : {'✅' if res['twitter'] else '❌'}")
     print(f"  📸  Instagram  : {'✅' if res['instagram'] else '❌'}")
     print("="*60)
-    return resultados
+    return res
