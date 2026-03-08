@@ -1007,7 +1007,7 @@ def main():
             thumbnail_path
         )
         
-        url = f'https://youtube.com/{"shorts" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
+        url = f'https://youtube.com/{"shorts/" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
         
         # Log
         log_entry = {
