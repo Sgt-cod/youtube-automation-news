@@ -380,38 +380,10 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
 # ════════════════════════════════════════════════════════════════════════════
 
 def publicar_twitter(titulo: str, url_youtube: str) -> bool:
-    if not all([TWITTER_API_KEY, TWITTER_API_SECRET,
-                TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
-        print("  ⚠️ Twitter não configurado — pulando")
-        return False
-
-    print("\n🐦 Publicando no Twitter/X...")
-
-    try:
-        import tweepy
-
-        # Plano free não suporta upload de mídia — só texto + link
-        hashtags = '#Política #Brasil #Notícias #Canal55'
-        sufixo   = f"\n\n▶️ {url_youtube}\n\n{hashtags}"
-        espaco   = 280 - len(sufixo) - 4
-        titulo_t = titulo if len(titulo) <= espaco else titulo[:espaco] + '...'
-        texto    = titulo_t + sufixo
-
-        client = tweepy.Client(
-            consumer_key=TWITTER_API_KEY,
-            consumer_secret=TWITTER_API_SECRET,
-            access_token=TWITTER_ACCESS_TOKEN,
-            access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
-        )
-        resp     = client.create_tweet(text=texto)
-        tweet_id = resp.data['id']
-        print(f"  ✅ Tweet: https://x.com/i/web/status/{tweet_id}")
-        return True
-
-    except Exception as e:
-        print(f"  ❌ Erro Twitter: {e}")
-        traceback.print_exc()
-        return False
+    # A API do X exige plano pago (Basic $100/mês) para postar via API.
+    # Desativado até o canal crescer e justificar o custo.
+    print("\n🐦 Twitter/X — desativado (plano pago necessário)")
+    return False
 
 
 # ════════════════════════════════════════════════════════════════════════════
