@@ -919,7 +919,6 @@ def main():
         extras = buscar_midias_final(['brasil'], quantidade=5)
         tempo_restante = duracao - sum([m['duracao'] for m in midias_sincronizadas])
         duracao_extra = tempo_restante / len(extras) if extras else 0
-        
         for extra in extras:
             midias_sincronizadas.append({
                 'midia': extra,
@@ -928,7 +927,7 @@ def main():
             })
             tempo_restante -= duracao_extra
     
-    # Definir video_path ANTES de criar o vídeo
+    # Definir video_path
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     video_path = f'{VIDEOS_DIR}/{VIDEO_TYPE}_{timestamp}.mp4'
     print(f"📹 Arquivo: {video_path}")
@@ -938,23 +937,14 @@ def main():
     try:
         if VIDEO_TYPE == 'short':
             resultado = criar_video_short_sem_legendas(
-                audio_path,
-                midias_sincronizadas,
-                video_path,
-                duracao
-            )
+                audio_path, midias_sincronizadas, video_path, duracao)
         else:
             resultado = criar_video_long_sem_legendas(
-                audio_path,
-                midias_sincronizadas,
-                video_path,
-                duracao
-            )
+                audio_path, midias_sincronizadas, video_path, duracao)
         
         if not resultado:
             print("❌ Erro ao criar vídeo")
             return
-        
         print("✅ Vídeo criado!")
         
     except Exception as e:
@@ -979,7 +969,6 @@ def main():
         print("\n" + "="*60)
         print("🖼️ VERIFICANDO THUMBNAIL")
         print("="*60)
-        
         thumbnail_custom = f'{ASSETS_DIR}/thumbnail_custom.jpg'
         if os.path.exists(thumbnail_custom):
             print("✅ Thumbnail já recebida")
@@ -988,7 +977,6 @@ def main():
             try:
                 curator = TelegramCuratorNoticias()
                 thumbnail_path = curator.solicitar_thumbnail(titulo, timeout=1200)
-                
                 if thumbnail_path:
                     print(f"✅ Thumbnail: {thumbnail_path}")
                 else:
@@ -1000,47 +988,12 @@ def main():
     print("\n📤 Upload YouTube...")
     try:
         video_id = fazer_upload_youtube(
-            video_path,
-            titulo,
-            descricao,
-            tags,
-            thumbnail_path
-        )
+            video_path, titulo, descricao, tags, thumbnail_path)
         
         url = f'https://youtube.com/{"shorts/" if VIDEO_TYPE == "short" else "watch?v="}{video_id}'
-        
-        # Log
-        log_entry = {
-            'data': datetime.now().isoformat(),
-            'tipo': VIDEO_TYPE,
-            'tema': titulo_video,
-            'titulo': titulo,
-            'duracao': duracao,
-            'video_id': video_id,
-            'url': url,
-            'com_legendas': False,
-            'com_thumbnail_custom': thumbnail_path is not None
-        }
-        
-        log_file = 'videos_gerados.json'
-        logs = []
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
-                logs = json.load(f)
-        
-        logs.append(log_entry)
-        
-        with open(log_file, 'w', encoding='utf-8') as f:
-            json.dump(logs, f, indent=2, ensure_ascii=False)
-        
-        # ============================================================
-# SUBSTITUA o trecho a partir de "print(f"✅ Publicado!\n🔗 {url}")"
-# até o final da função main() pelo código abaixo
-# ============================================================
-
         print(f"✅ Publicado!\n🔗 {url}")
-
-        # Log
+        
+        # Log — somente uma vez
         log_entry = {
             'data': datetime.now().isoformat(),
             'tipo': VIDEO_TYPE,
@@ -1052,7 +1005,6 @@ def main():
             'com_legendas': False,
             'com_thumbnail_custom': thumbnail_path is not None
         }
-
         log_file = 'videos_gerados.json'
         logs = []
         if os.path.exists(log_file):
@@ -1061,8 +1013,8 @@ def main():
         logs.append(log_entry)
         with open(log_file, 'w', encoding='utf-8') as f:
             json.dump(logs, f, indent=2, ensure_ascii=False)
-
-        # ── 1. DISTRIBUIÇÃO MULTIPLATAFORMA (Telegram Canal + Blogger) ──
+        
+        # ── 1. DISTRIBUIÇÃO MULTIPLATAFORMA ─────────────────────────────
         try:
             from distribuidor import distribuir
             distribuir(
@@ -1071,27 +1023,26 @@ def main():
                 url_youtube=url,
                 tags=tags,
                 thumbnail_path=thumbnail_path,
-                video_path=video_path,            
+                video_path=video_path,
                 midias_sincronizadas=midias_sincronizadas
             )
         except Exception as e:
             print(f"⚠️ Distribuição falhou (não crítico): {e}")
             import traceback
             traceback.print_exc()
-
-        # ── 2. ENVIO DO ARQUIVO DE VÍDEO PARA O BOT PESSOAL (curadoria) ──
+        
+        # ── 2. ENVIO PARA BOT PESSOAL (curadoria) ───────────────────────
         if USAR_CURACAO:
             print("\n" + "="*60)
             print("📱 ENVIANDO PARA TELEGRAM (bot pessoal)")
             print("="*60)
-
             try:
                 curator = TelegramCuratorNoticias()
                 tamanho_mb = os.path.getsize(video_path) / (1024 * 1024)
-                print(f"   📦 Tamanho do vídeo: {tamanho_mb:.2f} MB")
-
+                print(f"   📦 Tamanho: {tamanho_mb:.2f} MB")
+                
                 if tamanho_mb <= 50:
-                    print("   📤 Vídeo ≤ 50 MB - enviando arquivo direto...")
+                    print("   📤 Enviando arquivo direto...")
                     sucesso = curator.enviar_video_publicado(
                         video_path=video_path,
                         titulo=titulo,
@@ -1099,11 +1050,7 @@ def main():
                         tags=tags,
                         url_youtube=url
                     )
-                    if sucesso:
-                        print("✅ Vídeo enviado ao bot pessoal!")
-                    else:
-                        print("⚠️ Falha ao enviar vídeo ao bot pessoal")
-
+                    print("✅ Enviado!" if sucesso else "⚠️ Falha ao enviar")
                 else:
                     print("   📦 Vídeo > 50 MB - criando release no GitHub...")
                     from create_release import criar_release_com_video
@@ -1112,13 +1059,11 @@ def main():
                         titulo=titulo,
                         descricao=descricao
                     )
-
                     if release_info:
                         download_url = release_info['download_url']
-                        tag_name = release_info['tag_name']
+                        tag_name     = release_info['tag_name']
                         print(f"   ✅ Release criada! 🔗 {download_url}")
-
-                        sucesso = curator.enviar_link_download(
+                        curator.enviar_link_download(
                             download_url=download_url,
                             titulo=titulo,
                             descricao=descricao,
@@ -1128,14 +1073,8 @@ def main():
                             tamanho_mb=tamanho_mb,
                             tag_name=tag_name
                         )
-
-                        if sucesso:
-                            print("✅ Link enviado! Aguardando confirmação de download...")
-                            confirmado = curator.aguardar_confirmacao_download(timeout=7200)
-                            if confirmado:
-                                print("✅ Download confirmado!")
-                            else:
-                                print("⏰ Timeout - release permanecerá no GitHub")
+                        # SEM aguardar_confirmacao_download — encerra imediatamente
+                        print("💡 Baixe o vídeo pelo link acima quando quiser")
                     else:
                         print("❌ Erro ao criar release")
                         curator.enviar_mensagem(
@@ -1143,18 +1082,17 @@ def main():
                             f"📺 {titulo}\n🔗 YouTube: {url}\n\n"
                             f"📁 Disponível nos GitHub Actions Artifacts por 7 dias"
                         )
-
             except Exception as e:
                 print(f"⚠️ Erro ao enviar para bot pessoal: {e}")
                 import traceback
                 traceback.print_exc()
-
+    
     except Exception as e:
         print(f"❌ Erro no upload YouTube: {e}")
         import traceback
         traceback.print_exc()
-
-    # ── ENCERRAMENTO LIMPO (sem sys.exit, deixa o workflow terminar) ──
+    
+    # Encerramento limpo — sem sys.exit()
     print("\n" + "="*60)
     print("✅ WORKFLOW CONCLUÍDO")
     print("="*60)
