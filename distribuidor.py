@@ -4,7 +4,7 @@ distribuidor.py
 Distribui o vídeo publicado no YouTube para:
   1. Canal Telegram público (com thumbnail Canal 55)
   2. Blogger (com thumbnail Canal 55 embutida)
-  3. Twitter/X (texto + imagem + link)
+  3. Twitter/X (texto + link, plano free)
   4. Instagram (Reels via instagrapi)
 
 Secrets necessários no GitHub:
@@ -24,11 +24,13 @@ Secrets necessários no GitHub:
 """
 
 import os
+import re
 import json
 import time
+import base64
 import textwrap
-import requests
 import traceback
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -49,14 +51,54 @@ CANAL_YOUTUBE_URL           = os.environ.get('CANAL_YOUTUBE_URL', '')
 KOFI_URL                    = os.environ.get('KOFI_URL', '')
 KIRVANO_URL                 = os.environ.get('KIRVANO_URL', '')
 
-LOGO_PATH = 'logo_canal55.png'   # logo na raiz do repositório
+LOGO_PATH = 'logo_canal55.png'
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# UTILITÁRIOS
+# ════════════════════════════════════════════════════════════════════════════
 
 def _limpar_titulo(titulo: str) -> str:
-    """Remove sufixos de plataforma do título para exibição externa."""
-    import re
+    """Remove #shorts e variações do título para exibição externa."""
     titulo = re.sub(r'\s*#shorts?\s*$', '', titulo, flags=re.IGNORECASE)
     titulo = re.sub(r'\s*#short\s*$',  '', titulo, flags=re.IGNORECASE)
     return titulo.strip()
+
+
+def _apoio_texto() -> str:
+    """Retorna linha de apoio para texto simples (Telegram, Twitter)."""
+    linha = ''
+    if KIRVANO_URL:
+        linha += f'\n☕ Apoie: {KIRVANO_URL}'
+    if KOFI_URL:
+        linha += f'\n💙 Ko-fi: {KOFI_URL}'
+    return linha
+
+
+def obter_primeira_midia_match(midias_sincronizadas: list) -> str | None:
+    """
+    Retorna a primeira foto com match real (não genérica).
+    Fallback: última foto genérica disponível.
+    """
+    if not midias_sincronizadas:
+        return None
+    generica = None
+    for item in midias_sincronizadas:
+        midia = item.get('midia')
+        if not midia:
+            continue
+        caminho, tipo = midia
+        if not caminho or not os.path.exists(caminho):
+            continue
+        if tipo == 'video_local':
+            continue
+        if 'genericas' in caminho:
+            generica = caminho
+        else:
+            return caminho
+    return generica
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # THUMBNAIL — imagem Canal 55 com fundo + título + logo
 # ════════════════════════════════════════════════════════════════════════════
@@ -92,17 +134,16 @@ def gerar_thumbnail(titulo: str, imagem_fundo_path: str | None,
         canvas.paste(faixa, (0, 0), faixa)
         draw = ImageDraw.Draw(canvas)
 
-        # 4. Texto faixa superior
+        # 4. Texto na faixa
         try:
             f_tag = ImageFont.truetype(
                 '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 30)
         except Exception:
             f_tag = ImageFont.load_default()
-
         tag = "CANAL 55 NOTÍCIAS"
         bb = draw.textbbox((0, 0), tag, font=f_tag)
-        draw.text(((W - (bb[2]-bb[0])) // 2, 18), tag,
-                  font=f_tag, fill=(255, 255, 255))
+        draw.text(((W - (bb[2]-bb[0])) // 2, 18), tag, font=f_tag,
+                  fill=(255, 255, 255))
 
         # 5. Título centralizado
         try:
@@ -129,19 +170,18 @@ def gerar_thumbnail(titulo: str, imagem_fundo_path: str | None,
             draw.text((x, y), ln, font=font, fill=(255, 255, 255))
 
         # 6. Linha vermelha decorativa
-        ly = H - 290
-        draw.rectangle([(W//2-90, ly), (W//2+90, ly+5)], fill=(204, 0, 0))
+        draw.rectangle([(W//2-90, H-290), (W//2+90, H-285)], fill=(204, 0, 0))
 
         # 7. Logo Canal 55
         if os.path.exists(LOGO_PATH):
             logo = Image.open(LOGO_PATH).convert('RGBA')
             logo = logo.resize((220, 220), Image.LANCZOS)
-            lx, ly2 = (W-220)//2, H-280
+            lx, ly = (W-220)//2, H-280
             sombra = Image.new('RGBA', (240, 240), (0, 0, 0, 0))
             ImageDraw.Draw(sombra).ellipse([5, 5, 235, 235], fill=(0, 0, 0, 70))
             sombra = sombra.filter(ImageFilter.GaussianBlur(8))
-            canvas.paste(sombra, (lx-10, ly2-10), sombra)
-            canvas.paste(logo, (lx, ly2), logo)
+            canvas.paste(sombra, (lx-10, ly-10), sombra)
+            canvas.paste(logo, (lx, ly), logo)
 
         canvas.convert('RGB').save(output_path, 'JPEG', quality=92)
         print(f"  ✅ Thumbnail gerada: {output_path}")
@@ -151,28 +191,6 @@ def gerar_thumbnail(titulo: str, imagem_fundo_path: str | None,
         print(f"  ❌ Erro ao gerar thumbnail: {e}")
         traceback.print_exc()
         return None
-
-
-def obter_primeira_midia_match(midias_sincronizadas: list) -> str | None:
-    """Retorna a primeira foto com match real (não genérica).
-    Fallback: última foto genérica disponível."""
-    if not midias_sincronizadas:
-        return None
-    generica = None
-    for item in midias_sincronizadas:
-        midia = item.get('midia')
-        if not midia:
-            continue
-        caminho, tipo = midia
-        if not caminho or not os.path.exists(caminho):
-            continue
-        if tipo == 'video_local':
-            continue
-        if 'genericas' in caminho:
-            generica = caminho
-        else:
-            return caminho
-    return generica
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -189,14 +207,7 @@ def publicar_telegram_canal(titulo: str, roteiro: str, url_youtube: str,
 
     resumo = (roteiro[:280].rsplit(' ', 1)[0] + '...'
               if len(roteiro) > 280 else roteiro)
-
-    apoio = ''
-    if KIRVANO_URL:
-        apoio += f'\n☕ Apoie: {KIRVANO_URL}'
-    if KOFI_URL:
-        apoio += f'\n💙 Ko-fi: {KOFI_URL}'
-
-    canal = f'\n📺 {CANAL_YOUTUBE_URL}' if CANAL_YOUTUBE_URL else ''
+    canal  = f'\n📺 {CANAL_YOUTUBE_URL}' if CANAL_YOUTUBE_URL else ''
 
     legenda = (
         f"🗞 <b>{titulo}</b>\n\n"
@@ -204,7 +215,7 @@ def publicar_telegram_canal(titulo: str, roteiro: str, url_youtube: str,
         f"▶️ <b>Assista agora:</b>\n{url_youtube}"
         f"{canal}"
         f"\n\n🔔 Inscreva-se e ative o sininho!"
-        f"{apoio}"
+        f"{_apoio_texto()}"
     )
 
     base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
@@ -228,11 +239,12 @@ def publicar_telegram_canal(titulo: str, roteiro: str, url_youtube: str,
 
     # Fallback sem imagem
     try:
-        r = requests.post(f"{base}/sendMessage",
-                          json={'chat_id': TELEGRAM_CANAL_ID,
-                                'text': legenda, 'parse_mode': 'HTML',
-                                'disable_web_page_preview': False},
-                          timeout=30)
+        r = requests.post(
+            f"{base}/sendMessage",
+            json={'chat_id': TELEGRAM_CANAL_ID, 'text': legenda,
+                  'parse_mode': 'HTML', 'disable_web_page_preview': False},
+            timeout=30
+        )
         ok = r.json().get('ok', False)
         print(f"  {'✅ Publicado (sem imagem)' if ok else '❌ Falha'}")
         return ok
@@ -252,12 +264,6 @@ def _blogger_service():
     return build('blogger', 'v3', credentials=creds)
 
 
-def _thumb_base64(path: str) -> str:
-    import base64
-    with open(path, 'rb') as f:
-        return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode()
-
-
 def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
                      tags: list, thumbnail_path: str | None = None) -> str | None:
     if not BLOGGER_BLOG_ID or not BLOGGER_CREDENTIALS:
@@ -267,7 +273,7 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
     print("\n📝 Publicando no Blogger...")
 
     try:
-        # Embed
+        # ID do vídeo para embed
         if '/shorts/' in url_youtube:
             vid = url_youtube.split('/shorts/')[-1].split('?')[0]
         else:
@@ -276,10 +282,11 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
         # Thumbnail embutida como base64
         thumb_html = ''
         if thumbnail_path and os.path.exists(thumbnail_path):
-            b64 = _thumb_base64(thumbnail_path)
+            with open(thumbnail_path, 'rb') as f:
+                b64 = base64.b64encode(f.read()).decode()
             thumb_html = (
                 f'<div style="text-align:center;margin-bottom:24px">'
-                f'<img src="{b64}" alt="{titulo}" '
+                f'<img src="data:image/jpeg;base64,{b64}" alt="{titulo}" '
                 f'style="max-width:100%;border-radius:10px;'
                 f'box-shadow:0 4px 16px rgba(0,0,0,.25)"></div>'
             )
@@ -287,14 +294,15 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
         tags_html = ' '.join([
             f'<span style="background:#cc0000;color:#fff;padding:3px 9px;'
             f'border-radius:12px;font-size:13px;margin:2px;'
-            f'display:inline-block">#{t}</span>' for t in tags])
+            f'display:inline-block">#{t}</span>' for t in tags
+        ])
 
         paragrafos = '\n'.join(
             f'<p style="line-height:1.75;margin:0 0 16px;font-size:16px">'
             f'{p.strip()}</p>'
-            for p in roteiro.split('\n\n') if p.strip())
+            for p in roteiro.split('\n\n') if p.strip()
+        )
 
-        # Blocos de apoio
         links_apoio = []
         if KIRVANO_URL:
             links_apoio.append(
@@ -316,7 +324,8 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
                 f'border-radius:8px;padding:20px;margin:28px 0;text-align:center">'
                 f'<p style="margin:0 0 12px;font-size:15px;font-weight:bold">'
                 f'💰 Apoie o Canal 55 Notícias</p>'
-                + ''.join(links_apoio) + '</div>')
+                + ''.join(links_apoio) + '</div>'
+            )
 
         inscricao = ''
         if CANAL_YOUTUBE_URL:
@@ -328,14 +337,13 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
                 f'<a href="{CANAL_YOUTUBE_URL}?sub_confirmation=1" target="_blank" '
                 f'style="background:#ff0000;color:#fff;padding:10px 22px;'
                 f'border-radius:6px;text-decoration:none;font-weight:bold">'
-                f'▶ Inscreva-se no YouTube</a></div>')
+                f'▶ Inscreva-se no YouTube</a></div>'
+            )
 
-        html = f"""
-<div style="font-family:Georgia,serif;max-width:800px;margin:0 auto;color:#1e293b">
+        html = f"""<div style="font-family:Georgia,serif;max-width:800px;margin:0 auto;color:#1e293b">
   {thumb_html}
   {inscricao}
-  <div style="position:relative;padding-bottom:56.25%;height:0;
-              overflow:hidden;border-radius:10px;margin:24px 0">
+  <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:10px;margin:24px 0">
     <iframe src="https://www.youtube.com/embed/{vid}"
       style="position:absolute;top:0;left:0;width:100%;height:100%;border:0"
       allowfullscreen loading="lazy" title="{titulo}"></iframe>
@@ -371,8 +379,7 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
 # TWITTER / X
 # ════════════════════════════════════════════════════════════════════════════
 
-def publicar_twitter(titulo: str, url_youtube: str,
-                     thumbnail_path: str | None = None) -> bool:
+def publicar_twitter(titulo: str, url_youtube: str) -> bool:
     if not all([TWITTER_API_KEY, TWITTER_API_SECRET,
                 TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET]):
         print("  ⚠️ Twitter não configurado — pulando")
@@ -383,14 +390,12 @@ def publicar_twitter(titulo: str, url_youtube: str,
     try:
         import tweepy
 
-        # Plano free do X não suporta upload de mídia via API
-        # Postamos texto + link (funciona no free tier)
+        # Plano free não suporta upload de mídia — só texto + link
         hashtags = '#Política #Brasil #Notícias #Canal55'
-        texto    = f"{titulo}\n\n▶️ {url_youtube}\n\n{hashtags}"
-        if len(texto) > 280:
-            # Trunca o título mas mantém link e hashtags
-            espaco = 280 - len(f"\n\n▶️ {url_youtube}\n\n{hashtags}") - 4
-            texto  = f"{titulo[:espaco]}...\n\n▶️ {url_youtube}\n\n{hashtags}"
+        sufixo   = f"\n\n▶️ {url_youtube}\n\n{hashtags}"
+        espaco   = 280 - len(sufixo) - 4
+        titulo_t = titulo if len(titulo) <= espaco else titulo[:espaco] + '...'
+        texto    = titulo_t + sufixo
 
         client = tweepy.Client(
             consumer_key=TWITTER_API_KEY,
@@ -398,15 +403,14 @@ def publicar_twitter(titulo: str, url_youtube: str,
             access_token=TWITTER_ACCESS_TOKEN,
             access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
         )
-
         resp     = client.create_tweet(text=texto)
         tweet_id = resp.data['id']
-        print(f"  ✅ Tweet publicado: https://x.com/i/web/status/{tweet_id}")
+        print(f"  ✅ Tweet: https://x.com/i/web/status/{tweet_id}")
         return True
 
     except Exception as e:
         print(f"  ❌ Erro Twitter: {e}")
-        import traceback; traceback.print_exc()
+        traceback.print_exc()
         return False
 
 
@@ -452,23 +456,19 @@ def publicar_instagram_reels(video_path: str, titulo: str, roteiro: str,
 
         resumo = (roteiro[:300].rsplit(' ', 1)[0] + '...'
                   if len(roteiro) > 300 else roteiro)
-        apoio = ''
-        if KIRVANO_URL:
-            apoio += f'\n☕ Apoie: {KIRVANO_URL}'
-        if KOFI_URL:
-            apoio += f'\n💙 Ko-fi: {KOFI_URL}'
 
         legenda = (
             f"🗞 {titulo}\n\n{resumo}\n\n"
             f"▶️ Assista no YouTube:\n{url_youtube}\n"
             f"{'📺 ' + CANAL_YOUTUBE_URL if CANAL_YOUTUBE_URL else ''}\n\n"
-            f"🔔 Inscreva-se e ative o sininho!\n{apoio}\n\n"
+            f"🔔 Inscreva-se e ative o sininho!\n"
+            f"{_apoio_texto()}\n\n"
             f"#Política #Brasil #Notícias #Canal55 #PoliticaBrasileira "
             f"#Congresso #STF #Governo"
         )
 
-        cover  = Path(thumbnail_path) if thumbnail_path and os.path.exists(thumbnail_path) else None
-        media  = cl.clip_upload(Path(video_path), caption=legenda, thumbnail=cover)
+        cover = Path(thumbnail_path) if thumbnail_path and os.path.exists(thumbnail_path) else None
+        media = cl.clip_upload(Path(video_path), caption=legenda, thumbnail=cover)
         print(f"  ✅ Reel publicado! ID: {media.pk}")
         return True
 
@@ -489,10 +489,6 @@ def distribuir(titulo: str, roteiro: str, url_youtube: str, tags: list,
                thumbnail_path: str | None = None,
                video_path: str | None = None,
                midias_sincronizadas: list | None = None) -> dict:
-
-import re
-    titulo = re.sub(r'\s*#shorts?\s*$', '', titulo, flags=re.IGNORECASE).strip()
-
     """
     Chamada no generate_video.py após upload YouTube:
 
@@ -507,40 +503,54 @@ import re
             midias_sincronizadas=midias_sincronizadas
         )
     """
+    # Remove #shorts do título antes de qualquer uso externo
+    titulo = _limpar_titulo(titulo)
+
     print("\n" + "="*60)
     print("🚀 DISTRIBUIÇÃO — Canal 55 Notícias")
     print("="*60)
 
-    res = {'thumbnail': None, 'telegram_canal': False,
-           'blogger_url': None, 'twitter': False,
-           'instagram': False, 'timestamp': datetime.now().isoformat()}
+    res = {
+        'thumbnail':     None,
+        'telegram_canal': False,
+        'blogger_url':   None,
+        'twitter':       False,
+        'instagram':     False,
+        'timestamp':     datetime.now().isoformat()
+    }
 
-    # Thumbnail
+    # Gerar thumbnail
     print("\n🖼️ Gerando thumbnail...")
     fundo = obter_primeira_midia_match(midias_sincronizadas) if midias_sincronizadas else None
     if fundo:
         print(f"  📁 Fundo: {fundo}")
+    else:
+        print("  ⚠️ Sem match — fundo sólido")
     thumb = gerar_thumbnail(titulo, fundo, '/tmp/thumbnail_canal55.jpg')
     res['thumbnail'] = thumb
 
-    # Distribuição
+    # Distribuição — cada plataforma independente
     res['telegram_canal'] = publicar_telegram_canal(titulo, roteiro, url_youtube, thumb)
     time.sleep(2)
-    res['blogger_url']    = publicar_blogger(titulo, roteiro, url_youtube, tags, thumb)
+
+    res['blogger_url'] = publicar_blogger(titulo, roteiro, url_youtube, tags, thumb)
     time.sleep(2)
-    res['twitter']        = publicar_twitter(titulo, url_youtube, thumb)
+
+    res['twitter'] = publicar_twitter(titulo, url_youtube)
     time.sleep(2)
+
     if video_path:
-        res['instagram']  = publicar_instagram_reels(
+        res['instagram'] = publicar_instagram_reels(
             video_path, titulo, roteiro, url_youtube, thumb)
 
-    # Resumo
+    # Resumo final
     print("\n" + "="*60)
-    print("📊 RESULTADO")
+    print("📊 RESULTADO DA DISTRIBUIÇÃO")
     print(f"  🖼️  Thumbnail  : {'✅' if res['thumbnail'] else '❌'}")
     print(f"  📣  Telegram   : {'✅' if res['telegram_canal'] else '❌'}")
     print(f"  📝  Blogger    : {'✅' if res['blogger_url'] else '❌'}")
     print(f"  🐦  Twitter/X  : {'✅' if res['twitter'] else '❌'}")
     print(f"  📸  Instagram  : {'✅' if res['instagram'] else '❌'}")
     print("="*60)
+
     return res
