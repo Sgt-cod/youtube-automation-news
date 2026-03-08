@@ -1070,7 +1070,9 @@ def main():
                 roteiro=roteiro,
                 url_youtube=url,
                 tags=tags,
-                thumbnail_path=thumbnail_path
+                thumbnail_path=thumbnail_path,
+                video_path=video_path,            
+                midias_sincronizadas=midias_sincronizadas
             )
         except Exception as e:
             print(f"⚠️ Distribuição falhou (não crítico): {e}")
