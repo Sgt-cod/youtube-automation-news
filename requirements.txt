@@ -17,3 +17,5 @@ decorator==4.4.2
 proglog==0.1.10
 tqdm==4.66.1
 requests==2.31.0
+instagrapi
+tweepy
