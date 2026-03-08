@@ -50,6 +50,10 @@ jobs:
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           BLOGGER_CREDENTIALS: ${{ secrets.BLOGGER_CREDENTIALS }}
           CANAL_YOUTUBE_URL: ${{ secrets.CANAL_YOUTUBE_URL }}
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
           USAR_CURACAO: true
           CURACAO_TIMEOUT: 3600
           VIDEO_TYPE: short
