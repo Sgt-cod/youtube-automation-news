@@ -489,6 +489,10 @@ def distribuir(titulo: str, roteiro: str, url_youtube: str, tags: list,
                thumbnail_path: str | None = None,
                video_path: str | None = None,
                midias_sincronizadas: list | None = None) -> dict:
+
+import re
+    titulo = re.sub(r'\s*#shorts?\s*$', '', titulo, flags=re.IGNORECASE).strip()
+
     """
     Chamada no generate_video.py após upload YouTube:
 
