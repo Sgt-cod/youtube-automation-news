@@ -378,24 +378,14 @@ def publicar_twitter(titulo: str, url_youtube: str,
     try:
         import tweepy
 
+        # Plano free do X não suporta upload de mídia via API
+        # Postamos texto + link (funciona no free tier)
         hashtags = '#Política #Brasil #Notícias #Canal55'
         texto    = f"{titulo}\n\n▶️ {url_youtube}\n\n{hashtags}"
         if len(texto) > 280:
-            texto = f"{titulo[:180]}...\n\n▶️ {url_youtube}\n\n{hashtags}"
-
-        # Upload de imagem via API v1.1
-        media_id = None
-        if thumbnail_path and os.path.exists(thumbnail_path):
-            try:
-                auth  = tweepy.OAuth1UserHandler(
-                    TWITTER_API_KEY, TWITTER_API_SECRET,
-                    TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET)
-                api   = tweepy.API(auth)
-                media = api.media_upload(filename=thumbnail_path)
-                media_id = media.media_id
-                print(f"  📸 Imagem enviada (id: {media_id})")
-            except Exception as e:
-                print(f"  ⚠️ Falha ao enviar imagem: {e} — postando só texto")
+            # Trunca o título mas mantém link e hashtags
+            espaco = 280 - len(f"\n\n▶️ {url_youtube}\n\n{hashtags}") - 4
+            texto  = f"{titulo[:espaco]}...\n\n▶️ {url_youtube}\n\n{hashtags}"
 
         client = tweepy.Client(
             consumer_key=TWITTER_API_KEY,
@@ -403,18 +393,15 @@ def publicar_twitter(titulo: str, url_youtube: str,
             access_token=TWITTER_ACCESS_TOKEN,
             access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
         )
-        kwargs = {'text': texto}
-        if media_id:
-            kwargs['media_ids'] = [media_id]
 
-        resp     = client.create_tweet(**kwargs)
+        resp     = client.create_tweet(text=texto)
         tweet_id = resp.data['id']
-        print(f"  ✅ Tweet: https://x.com/i/web/status/{tweet_id}")
+        print(f"  ✅ Tweet publicado: https://x.com/i/web/status/{tweet_id}")
         return True
 
     except Exception as e:
         print(f"  ❌ Erro Twitter: {e}")
-        traceback.print_exc()
+        import traceback; traceback.print_exc()
         return False
 
 
