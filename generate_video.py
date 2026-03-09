@@ -433,7 +433,10 @@ def buscar_midias_final(keywords, quantidade=1):
     
     midias = []
     try:
-        midias = buscar_imagens_local(texto_busca, quantidade)
+        # buscar_imagens_local(segmento_texto, assets_dir)
+        # NÃO passar quantidade — segundo parâmetro é assets_dir (str)
+        resultado = buscar_imagens_local(texto_busca)
+        midias = [resultado] if resultado else []
     except Exception as e:
         print(f"  ❌ Erro: {e}")
     
