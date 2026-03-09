@@ -39,7 +39,7 @@ USAR_CURACAO = os.environ.get('USAR_CURACAO', 'false').lower() == 'true' and CUR
 CURACAO_TIMEOUT = int(os.environ.get('CURACAO_TIMEOUT', '3600'))
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash-lite')
+model = genai.GenerativeModel('gemini-3.1-pro-preview')
 
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -422,12 +422,18 @@ def buscar_imagens_local(segmento_texto: str, assets_dir: str = 'assets') -> tup
     return None
 
 def buscar_midias_final(keywords, quantidade=1):
-    """Busca mídias"""
+    """Busca mídias — aceita string ou lista de keywords."""
     print(f"🔍 Buscando: {keywords}")
+    
+    # Converte lista para string se necessário
+    if isinstance(keywords, list):
+        texto_busca = ' '.join(keywords)
+    else:
+        texto_busca = keywords
     
     midias = []
     try:
-        midias = buscar_imagens_local(keywords, quantidade)
+        midias = buscar_imagens_local(texto_busca, quantidade)
     except Exception as e:
         print(f"  ❌ Erro: {e}")
     
