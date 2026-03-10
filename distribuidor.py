@@ -264,6 +264,58 @@ def _blogger_service():
     return build('blogger', 'v3', credentials=creds)
 
 
+def _upload_thumb_github(thumbnail_path: str) -> str | None:
+    """
+    Faz upload da thumbnail para o repositório GitHub (pasta thumbs/).
+    Retorna URL pública raw.githubusercontent.com ou None se falhar.
+
+    Secrets necessários:
+      GITHUB_TOKEN → token com permissão de repo (já existe no workflow como GITHUB_TOKEN)
+      GITHUB_REPO  → ex: Sgt-cod/youtube-automation-news
+    """
+    GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+    GITHUB_REPO  = os.environ.get('GITHUB_REPO', '')
+
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        print("  ⚠️ GITHUB_TOKEN ou GITHUB_REPO não configurado")
+        return None
+
+    try:
+        import base64
+        from datetime import datetime
+
+        nome_arquivo = f"thumb_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        caminho_repo = f"thumbs/{nome_arquivo}"
+
+        with open(thumbnail_path, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode()
+
+        r = requests.put(
+            f"https://api.github.com/repos/{GITHUB_REPO}/contents/{caminho_repo}",
+            headers={
+                'Authorization': f'token {GITHUB_TOKEN}',
+                'Accept': 'application/vnd.github.v3+json'
+            },
+            json={
+                'message': f'thumb: {nome_arquivo}',
+                'content': b64
+            },
+            timeout=30
+        )
+
+        if r.status_code in (200, 201):
+            url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{caminho_repo}"
+            print(f"  🖼️ Thumbnail no GitHub: {url}")
+            return url
+        else:
+            print(f"  ⚠️ GitHub upload falhou: {r.status_code} {r.text[:200]}")
+            return None
+
+    except Exception as e:
+        print(f"  ⚠️ Erro upload GitHub: {e}")
+        return None
+
+
 def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
                      tags: list, thumbnail_path: str | None = None) -> str | None:
     if not BLOGGER_BLOG_ID or not BLOGGER_CREDENTIALS:
@@ -273,22 +325,34 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
     print("\n📝 Publicando no Blogger...")
 
     try:
-        import base64, json, traceback
+        import base64, traceback
         from datetime import datetime
 
-        # Thumbnail Canal 55 embutida como base64
+        # ── Thumbnail: URL pública via GitHub ────────────────────────────────
         thumb_html = ''
         if thumbnail_path and os.path.exists(thumbnail_path):
-            with open(thumbnail_path, 'rb') as f:
-                b64 = base64.b64encode(f.read()).decode()
-            thumb_html = (
-                f'<div style="text-align:center;margin-bottom:24px">'
-                f'<img src="data:image/jpeg;base64,{b64}" alt="{titulo}" '
-                f'style="max-width:100%;border-radius:10px;'
-                f'box-shadow:0 4px 16px rgba(0,0,0,.25)"></div>'
-            )
+            thumb_url = _upload_thumb_github(thumbnail_path)
 
-        # Botão assistir no YouTube (substitui o embed)
+            if thumb_url:
+                # URL pública — Blogger extrai como miniatura do post ✅
+                thumb_html = (
+                    f'<div style="text-align:center;margin-bottom:24px">'
+                    f'<img src="{thumb_url}" alt="{titulo}" '
+                    f'style="max-width:100%;border-radius:10px;'
+                    f'box-shadow:0 4px 16px rgba(0,0,0,.25)"></div>'
+                )
+            else:
+                # Fallback base64 (imagem aparece no artigo mas não na listagem)
+                with open(thumbnail_path, 'rb') as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                thumb_html = (
+                    f'<div style="text-align:center;margin-bottom:24px">'
+                    f'<img src="data:image/jpeg;base64,{b64}" alt="{titulo}" '
+                    f'style="max-width:100%;border-radius:10px;'
+                    f'box-shadow:0 4px 16px rgba(0,0,0,.25)"></div>'
+                )
+
+        # Botão assistir no YouTube
         assistir_btn = (
             f'<div style="text-align:center;margin:24px 0">'
             f'<a href="{url_youtube}" target="_blank" style="'
