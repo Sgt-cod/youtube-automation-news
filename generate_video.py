@@ -319,25 +319,26 @@ def buscar_imagens_local(segmento_texto: str, assets_dir: str = 'assets') -> tup
       assets/instituicoes/<nome>/foto.jpg
       assets/genericas/foto.jpg
 
-    Estratégia:
-      1. Varre TODAS as palavras do segmento
-      2. Testa termos compostos (ex: "alexandre_de_moraes", "fernando_haddad")
-      3. Políticos têm prioridade sobre instituições
-      4. Genéricas só como último recurso
+    Regras:
+      - Respeita ordem das palavras no texto (primeiro match tem prioridade)
+      - Termos compostos têm prioridade sobre simples (alexandre_de_moraes > alexandre)
+      - Match EXATO com nome da pasta (sem prefixo parcial — "tribunal" não casa "tribunal_de_contas")
+      - Políticos vs instituições: quem aparecer primeiro no texto vence
+      - Genéricas só como último recurso
     """
     import os
+    import re
     import random
     import unicodedata
 
     def normalizar(texto: str) -> str:
-        """Remove acentos e converte para minúsculo."""
         texto = texto.lower().strip()
         texto = unicodedata.normalize('NFD', texto)
         texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
-        return texto
+        texto = re.sub(r'[^\w\s]', ' ', texto)
+        return texto.strip()
 
     def imagens_da_pasta(pasta: str) -> list:
-        """Retorna lista de imagens JPG/PNG dentro de uma pasta."""
         if not os.path.isdir(pasta):
             return []
         return [
@@ -346,77 +347,79 @@ def buscar_imagens_local(segmento_texto: str, assets_dir: str = 'assets') -> tup
             if f.lower().endswith(('.jpg', '.jpeg', '.png'))
         ]
 
-    def buscar_em_dir(base_dir: str, palavras_norm: list) -> str | None:
-        """
-        Tenta encontrar uma subpasta em base_dir que corresponda
-        a qualquer combinação das palavras do segmento.
-        Testa termos compostos primeiro (mais específicos).
-        """
+    def carregar_subpastas(base_dir: str) -> dict:
+        """Retorna {nome_normalizado: caminho_completo}."""
         if not os.path.isdir(base_dir):
-            return None
-
-        # Lista todas as subpastas disponíveis (normalizadas)
-        subpastas = {
-            normalizar(nome): nome
+            return {}
+        return {
+            normalizar(nome): os.path.join(base_dir, nome)
             for nome in os.listdir(base_dir)
             if os.path.isdir(os.path.join(base_dir, nome))
         }
 
-        n = len(palavras_norm)
+    def encontrar_match(palavras: list, subpastas: dict):
+        """
+        Varre todas as combinações do maior termo para o menor.
+        Retorna (posição_no_texto, caminho_imagem) do melhor match.
+        Usa TODAS as palavras incluindo curtas (ex: 'de') para termos compostos.
+        Exige que ao menos uma palavra do termo tenha >2 chars.
+        """
+        n = len(palavras)
+        melhor = None  # (posicao, imagem, tamanho_termo)
 
-        # Tenta combinações do maior para o menor (prioriza termos compostos)
-        for tamanho in range(min(n, 4), 0, -1):
+        for tamanho in range(min(n, 5), 0, -1):
             for inicio in range(n - tamanho + 1):
-                # Testa com underscore (ex: alexandre_de_moraes)
-                termo_underscore = '_'.join(palavras_norm[inicio:inicio + tamanho])
-                if termo_underscore in subpastas:
-                    pasta = os.path.join(base_dir, subpastas[termo_underscore])
-                    imagens = imagens_da_pasta(pasta)
+                trecho = palavras[inicio:inicio + tamanho]
+                # Pelo menos uma palavra significativa no trecho
+                if not any(len(p) > 2 for p in trecho):
+                    continue
+                termo = '_'.join(trecho)
+                if termo in subpastas:
+                    imagens = imagens_da_pasta(subpastas[termo])
                     if imagens:
-                        return random.choice(imagens)
+                        pos = inicio
+                        if (melhor is None
+                                or pos < melhor[0]
+                                or (pos == melhor[0] and tamanho > melhor[2])):
+                            melhor = (pos, random.choice(imagens), tamanho)
 
-                # Testa só a palavra (ex: bolsonaro, lula, dino)
-                if tamanho == 1:
-                    termo = palavras_norm[inicio]
-                    # Busca parcial: verifica se alguma pasta COMEÇA com o termo
-                    for pasta_norm, pasta_real in subpastas.items():
-                        if pasta_norm == termo or pasta_norm.startswith(termo + '_'):
-                            pasta = os.path.join(base_dir, pasta_real)
-                            imagens = imagens_da_pasta(pasta)
-                            if imagens:
-                                return random.choice(imagens)
+        return (melhor[0], melhor[1]) if melhor else None
 
-        return None
+    # ── Normalizar texto completo (mantém todas as palavras para termos compostos) ──
+    palavras = normalizar(segmento_texto).split()
 
-    # ── Preparar palavras do segmento ────────────────────────────────────────
-    palavras_raw  = segmento_texto.split()
-    palavras_norm = [normalizar(p) for p in palavras_raw if len(p) > 2]
-
-    if not palavras_norm:
-        # Fallback imediato para genéricas
+    if not palavras:
         genericas = imagens_da_pasta(os.path.join(assets_dir, 'genericas'))
-        if genericas:
-            return (random.choice(genericas), 'imagem_local')
-        return None
+        return (random.choice(genericas), 'imagem_local') if genericas else None
 
-    # ── 1. Buscar em políticos (prioridade máxima) ───────────────────────────
-    dir_politicos = os.path.join(assets_dir, 'politicos')
-    resultado = buscar_em_dir(dir_politicos, palavras_norm)
-    if resultado:
-        print(f"    🎯 Match político: {resultado}")
-        return (resultado, 'imagem_local')
+    # ── Carregar subpastas ────────────────────────────────────────────────────
+    subpastas_pol  = carregar_subpastas(os.path.join(assets_dir, 'politicos'))
+    subpastas_inst = carregar_subpastas(os.path.join(assets_dir, 'instituicoes'))
 
-    # ── 2. Buscar em instituições ────────────────────────────────────────────
-    dir_instituicoes = os.path.join(assets_dir, 'instituicoes')
-    resultado = buscar_em_dir(dir_instituicoes, palavras_norm)
-    if resultado:
-        print(f"    🏛️ Match instituição: {resultado}")
-        return (resultado, 'imagem_local')
+    # ── Buscar matches ────────────────────────────────────────────────────────
+    match_pol  = encontrar_match(palavras, subpastas_pol)
+    match_inst = encontrar_match(palavras, subpastas_inst)
 
-    # ── 3. Fallback: genéricas ───────────────────────────────────────────────
+    # ── Quem aparece primeiro no texto vence (políticos desempatam) ───────────
+    if match_pol and match_inst:
+        if match_pol[0] <= match_inst[0]:
+            print(f"    🎯 Político (pos {match_pol[0]}): {match_pol[1]}")
+            return (match_pol[1], 'imagem_local')
+        else:
+            print(f"    🏛️ Instituição (pos {match_inst[0]}): {match_inst[1]}")
+            return (match_inst[1], 'imagem_local')
+    elif match_pol:
+        print(f"    🎯 Político: {match_pol[1]}")
+        return (match_pol[1], 'imagem_local')
+    elif match_inst:
+        print(f"    🏛️ Instituição: {match_inst[1]}")
+        return (match_inst[1], 'imagem_local')
+
+    # ── Fallback: genéricas ───────────────────────────────────────────────────
     genericas = imagens_da_pasta(os.path.join(assets_dir, 'genericas'))
     if genericas:
-        print(f"    📁 Usando genérica (sem match para: {' '.join(palavras_norm[:5])})")
+        sem_match = [p for p in palavras if len(p) > 3][:5]
+        print(f"    📁 Genérica (sem match: {' '.join(sem_match)})")
         return (random.choice(genericas), 'imagem_local')
 
     return None
