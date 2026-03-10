@@ -57,6 +57,7 @@ jobs:
           USAR_CURACAO: true
           CURACAO_TIMEOUT: 3600
           VIDEO_TYPE: short
+          GITHUB_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python generate_video.py
