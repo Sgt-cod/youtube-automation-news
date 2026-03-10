@@ -273,13 +273,10 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
     print("\n📝 Publicando no Blogger...")
 
     try:
-        # ID do vídeo para embed
-        if '/shorts/' in url_youtube:
-            vid = url_youtube.split('/shorts/')[-1].split('?')[0]
-        else:
-            vid = url_youtube.split('v=')[-1].split('&')[0]
+        import base64, json, traceback
+        from datetime import datetime
 
-        # Thumbnail embutida como base64
+        # Thumbnail Canal 55 embutida como base64
         thumb_html = ''
         if thumbnail_path and os.path.exists(thumbnail_path):
             with open(thumbnail_path, 'rb') as f:
@@ -290,6 +287,16 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
                 f'style="max-width:100%;border-radius:10px;'
                 f'box-shadow:0 4px 16px rgba(0,0,0,.25)"></div>'
             )
+
+        # Botão assistir no YouTube (substitui o embed)
+        assistir_btn = (
+            f'<div style="text-align:center;margin:24px 0">'
+            f'<a href="{url_youtube}" target="_blank" style="'
+            f'background:#ff0000;color:#fff;padding:14px 32px;'
+            f'border-radius:8px;text-decoration:none;font-weight:bold;'
+            f'font-size:16px;display:inline-block">'
+            f'▶ Assistir no YouTube</a></div>'
+        )
 
         tags_html = ' '.join([
             f'<span style="background:#cc0000;color:#fff;padding:3px 9px;'
@@ -342,12 +349,8 @@ def publicar_blogger(titulo: str, roteiro: str, url_youtube: str,
 
         html = f"""<div style="font-family:Georgia,serif;max-width:800px;margin:0 auto;color:#1e293b">
   {thumb_html}
+  {assistir_btn}
   {inscricao}
-  <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:10px;margin:24px 0">
-    <iframe src="https://www.youtube.com/embed/{vid}"
-      style="position:absolute;top:0;left:0;width:100%;height:100%;border:0"
-      allowfullscreen loading="lazy" title="{titulo}"></iframe>
-  </div>
   <div style="margin:24px 0">{paragrafos}</div>
   <div style="margin:20px 0">{tags_html}</div>
   {apoio_bloco}
