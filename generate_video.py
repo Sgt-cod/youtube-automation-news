@@ -478,7 +478,7 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
     midias_sincronizadas = []
     
     for i, seg in enumerate(segmentos_com_tempo):
-        midia = buscar_midias_final(seg['keywords'], quantidade=1)
+        midia = buscar_midias_final(seg['texto_completo'], quantidade=1)
         
         if midia and len(midia) > 0:
             midias_sincronizadas.append({
