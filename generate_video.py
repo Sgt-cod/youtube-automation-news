@@ -286,24 +286,61 @@ def criar_audio(texto, output_file):
     
     return output_file
 
-def extrair_keywords_do_texto(texto):
-    """Extrai keywords"""
-    prompt = f"""Extraia 3-5 palavras-chave deste texto:
+def extrair_keywords_do_texto(texto: str) -> list:
+    """
+    Extrai keywords do texto para busca de mídias locais.
+    Prioriza siglas (STF, OAB) e nomes próprios (Fachin, Lula).
+    Zero chamadas à API do Gemini.
+    """
+    import re
+    import unicodedata
 
-"{texto[:200]}"
+    stopwords = {
+        'o','a','os','as','um','uma','uns','umas','de','da','do','das','dos',
+        'em','na','no','nas','nos','por','para','com','sem','sob','que','se',
+        'ao','aos','às','e','ou','mas','foi','era','ser','ter','tem','são',
+        'está','após','ante','até','desde','entre','sobre','como','mais','isso',
+        'esse','esta','este','sua','seu','seus','suas','ela','ele','eles','elas',
+        'novo','nova','agora','hoje','ontem','segundo','durante','quando','onde',
+        'ainda','também','já','não','sim','muito','bem','disse','afirmou',
+        'declarou','informou','relatou','ministro','presidente','senador',
+        'deputado','ministra','secretário','secretária','relator',
+    }
 
-Nomes de políticos/instituições em PORTUGUÊS.
-Senão, palavras em INGLÊS.
+    def norm(p):
+        p = unicodedata.normalize('NFD', p)
+        return ''.join(c for c in p if unicodedata.category(c) != 'Mn').lower()
 
-Retorne APENAS palavras separadas por vírgula."""
-    
-    try:
-        response = model.generate_content(prompt)
-        keywords = [k.strip().lower() for k in response.text.strip().split(',')]
-        return keywords[:5]
-    except:
-        palavras = texto.lower().split()
-        return [p for p in palavras if len(p) > 4][:3]
+    keywords = []
+
+    # 1. Siglas (STF, OAB, PGR, PT, etc.)
+    siglas = re.findall(r'\b[A-ZÁÉÍÓÚÂÊÎÔÛÃÕ]{2,6}\b', texto)
+    for s in siglas:
+        if s not in keywords:
+            keywords.append(s.lower())
+
+    # 2. Nomes próprios (inicial maiúscula, não início de frase, não stopword)
+    texto_limpo = re.sub(r'[^\w\s]', ' ', texto)
+    palavras = texto_limpo.split()
+    for i, palavra in enumerate(palavras):
+        if i == 0:
+            continue
+        if (palavra[0].isupper()
+                and len(palavra) > 2
+                and norm(palavra) not in stopwords
+                and norm(palavra) not in [norm(k) for k in keywords]):
+            keywords.append(norm(palavra))
+
+    # 3. Fallback: palavras longas se não achou nada
+    if not keywords:
+        for p in palavras:
+            pn = norm(p)
+            if len(p) > 5 and pn not in stopwords:
+                keywords.append(pn)
+                if len(keywords) >= 3:
+                    break
+
+    return keywords[:8]
 
 # ============================================================
 # SUBSTITUA a função buscar_imagens_local() inteira no
@@ -500,20 +537,49 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
         print("\n" + "="*60)
         print("🎬 MODO CURADORIA ATIVADO")
         print("="*60)
-        
+
         try:
             curator = TelegramCuratorNoticias()
             curator.solicitar_curacao(midias_sincronizadas)
             midias_aprovadas = curator.aguardar_aprovacao(timeout=CURACAO_TIMEOUT)
-            
+
             if midias_aprovadas:
-                print("✅ Aprovadas!")
+                print("✅ Mídias aprovadas pela curadoria!")
                 midias_sincronizadas = midias_aprovadas
             else:
-                print("⏰ Timeout")
+                # Timeout — mantém as mídias automáticas já buscadas
+                # (políticos/instituições/genéricas encontradas antes da curadoria)
+                print("⏰ Timeout da curadoria — usando mídias automáticas")
+                try:
+                    curator.enviar_mensagem(
+                        "⚠️ <b>Curadoria expirou</b>\n"
+                        "Vídeo montado automaticamente com mídias já encontradas."
+                    )
+                except Exception:
+                    pass
+
         except Exception as e:
-            print(f"⚠️ Erro: {e}")
-    
+            print(f"⚠️ Erro na curadoria: {e} — continuando automaticamente")
+
+    # Fallback final: só entra se a busca automática não encontrou NADA
+    if not midias_sincronizadas:
+        print("⚠️ Nenhuma mídia encontrada — usando genéricas como fallback...")
+        import glob, random
+        genericas = (glob.glob(f'{ASSETS_DIR}/genericas/*.jpg') +
+                     glob.glob(f'{ASSETS_DIR}/genericas/*.png'))
+        if genericas:
+            duracao_media = duracao_audio / 5
+            for i in range(5):
+                midias_sincronizadas.append({
+                    'midia': (random.choice(genericas), 'imagem_local'),
+                    'inicio': i * duracao_media,
+                    'duracao': duracao_media,
+                    'texto': 'fallback',
+                    'texto_completo': 'fallback',
+                    'keywords': []
+                })
+            print(f"✅ {len(midias_sincronizadas)} genéricas adicionadas")
+
     return midias_sincronizadas
 
 
