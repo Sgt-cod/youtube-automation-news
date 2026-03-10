@@ -698,30 +698,46 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
         except Exception as e:
             print(f"  ⚠️ Erro mídia {i}: {e}")
     
+    # Substitua o bloco inteiro "if tempo_coberto < duracao_total:" por este:
+
     if tempo_coberto < duracao_total:
-        print(f"⚠️ Preenchendo {duracao_total - tempo_coberto:.1f}s")
-        extras = buscar_midias_final(['brasil'], quantidade=3)
         duracao_restante = duracao_total - tempo_coberto
-        duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
-        
-        for idx, (midia_info, midia_tipo) in enumerate(extras):
-            try:
-                if midia_tipo == 'foto_local' and os.path.exists(midia_info):
-                    clip = ImageClip(midia_info, duration=duracao_por_extra)
-                    clip = clip.resize(height=1920)
-                    if clip.w > 1080:
-                        clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
-                    elif clip.w < 1080:
-                        clip = clip.resize(width=1080)
-                    
-                    if clip.size != (1080, 1920):
-                        clip = clip.resize((1080, 1920))
-                    
-                    clip = clip.set_start(tempo_coberto)
-                    clips_imagem.append(clip)
-                    tempo_coberto += duracao_por_extra
-            except:
-                continue
+        print(f"⚠️ Preenchendo {duracao_restante:.1f}s com mídias já aprovadas...")
+
+        # Reutiliza as mídias já existentes em loop (não busca genéricas)
+        if midias_sincronizadas:
+            import itertools
+            pool = list(midias_sincronizadas)
+            for midia_item in itertools.cycle(pool):
+                if tempo_coberto >= duracao_total:
+                    break
+
+                midia = midia_item.get('midia')
+                if not midia:
+                    continue
+
+                midia_info, midia_tipo = midia
+                duracao_clip = min(
+                    midia_item.get('duracao', 3.0),
+                    duracao_total - tempo_coberto
+                )
+
+                try:
+                    if midia_tipo in ('foto_local', 'imagem_local') and os.path.exists(midia_info):
+                        clip = ImageClip(midia_info, duration=duracao_clip)
+                        clip = clip.resize(height=1920)
+                        if clip.w > 1080:
+                            clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
+                        elif clip.w < 1080:
+                            clip = clip.resize(width=1080)
+                        if clip.size != (1080, 1920):
+                            clip = clip.resize((1080, 1920))
+                        clip = clip.set_start(tempo_coberto)
+                        clips_imagem.append(clip)
+                        tempo_coberto += duracao_clip
+                except Exception as e:
+                    print(f"  ⚠️ Erro ao reutilizar mídia: {e}")
+                    continue
     
     if not clips_imagem:
         print("❌ Nenhum clip de imagem criado!")
