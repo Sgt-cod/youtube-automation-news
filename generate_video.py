@@ -649,6 +649,51 @@ def preparar_clip_video(video_path, duracao_alvo, orientacao='short'):
         print(f"  ❌ Erro ao preparar clip de vídeo: {e}")
         return None
 
+def _mixar_musica_fundo(audio_narracao, duracao_total: float,
+                         volume: float = 0.06,
+                         musicas_dir: str = 'assets/musicas'):
+    """
+    Escolhe uma música aleatória da pasta assets/musicas/,
+    ajusta o volume e mixa com a narração.
+    Retorna o AudioClip final mixado.
+    Se não encontrar músicas, retorna a narração sem alteração.
+    """
+    import glob
+    import random
+    from moviepy.editor import AudioFileClip, CompositeAudioClip
+ 
+    try:
+        # Busca músicas disponíveis
+        musicas = (glob.glob(f'{musicas_dir}/*.mp3') +
+                   glob.glob(f'{musicas_dir}/*.wav') +
+                   glob.glob(f'{musicas_dir}/*.ogg'))
+ 
+        if not musicas:
+            print("  ⚠️ Nenhuma música encontrada em assets/musicas/ — sem fundo")
+            return audio_narracao
+ 
+        musica_escolhida = random.choice(musicas)
+        print(f"  🎼 Música: {os.path.basename(musica_escolhida)} (volume {int(volume*100)}%)")
+ 
+        musica = AudioFileClip(musica_escolhida)
+ 
+        # Loopa se a música for mais curta que o vídeo
+        if musica.duration < duracao_total:
+            import math
+            repeticoes = math.ceil(duracao_total / musica.duration)
+            from moviepy.editor import concatenate_audioclips
+            musica = concatenate_audioclips([musica] * repeticoes)
+ 
+        # Corta no tamanho exato do vídeo e ajusta volume
+        musica = musica.subclip(0, duracao_total).volumex(volume)
+ 
+        # Mixa narração + música
+        audio_mixado = CompositeAudioClip([audio_narracao, musica])
+        return audio_mixado
+ 
+    except Exception as e:
+        print(f"  ⚠️ Erro ao adicionar música: {e} — usando só narração")
+        return audio_narracao
 
 def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file, duracao_total):
     """Cria SHORT SEM legendas - suporta fotos E vídeos"""
@@ -663,65 +708,50 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
         duracao_clip = item['duracao']
         
         try:
-            # ALTERAÇÃO: verificar se é vídeo ou foto
             if midia_tipo == 'video_local' and os.path.exists(midia_info):
-                # Processar clip de vídeo
                 print(f"  🎬 Clip {i+1}: vídeo → {os.path.basename(midia_info)}")
                 clip = preparar_clip_video(midia_info, duracao_clip, orientacao='short')
-                
                 if clip is None:
-                    print(f"  ⚠️ Falha no vídeo {i+1}, tentando fallback para imagem...")
                     raise Exception("Falha no clip de vídeo")
-                
                 clip = clip.set_start(inicio)
                 clips_imagem.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + clip.duration)
             
-            elif midia_tipo == 'foto_local' and os.path.exists(midia_info):
-                # Processar foto (comportamento original)
+            elif midia_tipo in ('foto_local', 'imagem_local') and os.path.exists(midia_info):
                 clip = ImageClip(midia_info, duration=duracao_clip)
                 clip = clip.resize(height=1920)
                 if clip.w > 1080:
                     clip = clip.crop(x_center=clip.w/2, width=1080, height=1920)
                 elif clip.w < 1080:
                     clip = clip.resize(width=1080)
-                
                 if clip.size != (1080, 1920):
                     clip = clip.resize((1080, 1920))
                 
-                clip = clip.resize(lambda t: 1 + 0.05 * (t / duracao_clip))
+                # ── Zoom Ken Burns (aplicado APÓS resize final) ──────────────
+                clip = clip.resize(lambda t: 1 + 0.04 * (t / duracao_clip))
                 clip = clip.set_start(inicio)
-                
                 clips_imagem.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
                 
         except Exception as e:
             print(f"  ⚠️ Erro mídia {i}: {e}")
     
-    # Substitua o bloco inteiro "if tempo_coberto < duracao_total:" por este:
-
+    # Preenchimento reutilizando mídias já aprovadas
     if tempo_coberto < duracao_total:
         duracao_restante = duracao_total - tempo_coberto
         print(f"⚠️ Preenchendo {duracao_restante:.1f}s com mídias já aprovadas...")
-
-        # Reutiliza as mídias já existentes em loop (não busca genéricas)
         if midias_sincronizadas:
             import itertools
             pool = list(midias_sincronizadas)
             for midia_item in itertools.cycle(pool):
                 if tempo_coberto >= duracao_total:
                     break
-
                 midia = midia_item.get('midia')
                 if not midia:
                     continue
-
                 midia_info, midia_tipo = midia
-                duracao_clip = min(
-                    midia_item.get('duracao', 3.0),
-                    duracao_total - tempo_coberto
-                )
-
+                duracao_clip = min(midia_item.get('duracao', 3.0),
+                                   duracao_total - tempo_coberto)
                 try:
                     if midia_tipo in ('foto_local', 'imagem_local') and os.path.exists(midia_info):
                         clip = ImageClip(midia_info, duration=duracao_clip)
@@ -732,6 +762,7 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
                             clip = clip.resize(width=1080)
                         if clip.size != (1080, 1920):
                             clip = clip.resize((1080, 1920))
+                        clip = clip.resize(lambda t: 1 + 0.04 * (t / duracao_clip))
                         clip = clip.set_start(tempo_coberto)
                         clips_imagem.append(clip)
                         tempo_coberto += duracao_clip
@@ -748,8 +779,11 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
     video_base = video_base.set_duration(duracao_total)
     
     print("🎵 Adicionando áudio...")
-    audio = AudioFileClip(audio_path)
-    video_final = video_base.set_audio(audio)
+    audio_narr = AudioFileClip(audio_path)
+    
+    # ── Música de fundo ───────────────────────────────────────────────────────
+    audio_final = _mixar_musica_fundo(audio_narr, duracao_total, volume=0.06)
+    video_final = video_base.set_audio(audio_final)
     
     print("💾 Renderizando...")
     video_final.write_videofile(
@@ -764,12 +798,13 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
     
     print("🧹 Limpando memória...")
     video_final.close()
-    audio.close()
+    audio_narr.close()
     for clip in clips_imagem:
         clip.close()
     
     return output_file
-
+ 
+ 
 def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file, duracao_total):
     """Cria vídeo longo SEM legendas - suporta fotos E vídeos"""
     print(f"📹 Criando vídeo longo...")
@@ -783,64 +818,67 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
         duracao_clip = item['duracao']
         
         try:
-            # ALTERAÇÃO: verificar se é vídeo ou foto
             if midia_tipo == 'video_local' and os.path.exists(midia_info):
-                # Processar clip de vídeo
                 print(f"  🎬 Clip {i+1}: vídeo → {os.path.basename(midia_info)}")
                 clip = preparar_clip_video(midia_info, duracao_clip, orientacao='long')
-                
                 if clip is None:
                     print(f"  ⚠️ Falha no vídeo {i+1}, pulando...")
                     continue
-                
                 clip = clip.set_start(inicio)
                 clips_imagem.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + clip.duration)
             
-            elif midia_tipo == 'foto_local' and os.path.exists(midia_info):
-                # Processar foto (comportamento original)
+            elif midia_tipo in ('foto_local', 'imagem_local') and os.path.exists(midia_info):
                 clip = ImageClip(midia_info, duration=duracao_clip)
                 clip = clip.resize(height=1080)
                 if clip.w < 1920:
                     clip = clip.resize(width=1920)
-                
                 clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
-                
                 if clip.size != (1920, 1080):
                     clip = clip.resize((1920, 1080))
                 
+                # ── Zoom Ken Burns (aplicado APÓS resize final) ──────────────
                 clip = clip.resize(lambda t: 1 + 0.03 * (t / duracao_clip))
                 clip = clip.set_start(inicio)
-                
                 clips_imagem.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
                 
         except Exception as e:
             print(f"  ⚠️ Erro {i}: {e}")
     
+    # Preenchimento reutilizando mídias já aprovadas
     if tempo_coberto < duracao_total:
-        extras = buscar_midias_final(['brasil'], quantidade=5)
         duracao_restante = duracao_total - tempo_coberto
-        duracao_por_extra = duracao_restante / len(extras) if extras else duracao_restante
-        
-        for idx, (midia_info, midia_tipo) in enumerate(extras):
-            try:
-                if midia_tipo == 'foto_local' and os.path.exists(midia_info):
-                    clip = ImageClip(midia_info, duration=duracao_por_extra)
-                    clip = clip.resize(height=1080)
-                    if clip.w < 1920:
-                        clip = clip.resize(width=1920)
-                    
-                    clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1920, height=1080)
-                    
-                    if clip.size != (1920, 1080):
-                        clip = clip.resize((1920, 1080))
-                    
-                    clip = clip.set_start(tempo_coberto)
-                    clips_imagem.append(clip)
-                    tempo_coberto += duracao_por_extra
-            except:
-                continue
+        print(f"⚠️ Preenchendo {duracao_restante:.1f}s com mídias já aprovadas...")
+        if midias_sincronizadas:
+            import itertools
+            pool = list(midias_sincronizadas)
+            for midia_item in itertools.cycle(pool):
+                if tempo_coberto >= duracao_total:
+                    break
+                midia = midia_item.get('midia')
+                if not midia:
+                    continue
+                midia_info, midia_tipo = midia
+                duracao_clip = min(midia_item.get('duracao', 3.0),
+                                   duracao_total - tempo_coberto)
+                try:
+                    if midia_tipo in ('foto_local', 'imagem_local') and os.path.exists(midia_info):
+                        clip = ImageClip(midia_info, duration=duracao_clip)
+                        clip = clip.resize(height=1080)
+                        if clip.w < 1920:
+                            clip = clip.resize(width=1920)
+                        clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2,
+                                         width=1920, height=1080)
+                        if clip.size != (1920, 1080):
+                            clip = clip.resize((1920, 1080))
+                        clip = clip.resize(lambda t: 1 + 0.03 * (t / duracao_clip))
+                        clip = clip.set_start(tempo_coberto)
+                        clips_imagem.append(clip)
+                        tempo_coberto += duracao_clip
+                except Exception as e:
+                    print(f"  ⚠️ Erro ao reutilizar mídia: {e}")
+                    continue
     
     if not clips_imagem:
         return None
@@ -848,11 +886,15 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
     video_base = CompositeVideoClip(clips_imagem, size=(1920, 1080))
     video_base = video_base.set_duration(duracao_total)
     
-    audio = AudioFileClip(audio_path)
-    video_base = video_base.set_audio(audio)
+    print("🎵 Adicionando áudio...")
+    audio_narr = AudioFileClip(audio_path)
+    
+    # ── Música de fundo ───────────────────────────────────────────────────────
+    audio_final = _mixar_musica_fundo(audio_narr, duracao_total, volume=0.06)
+    video_final = video_base.set_audio(audio_final)
     
     print("💾 Renderizando...")
-    video_base.write_videofile(
+    video_final.write_videofile(
         output_file,
         fps=24,
         codec='libx264',
@@ -862,13 +904,13 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
         threads=4
     )
     
-    video_base.close()
-    audio.close()
+    video_final.close()
+    audio_narr.close()
     for clip in clips_imagem:
         clip.close()
     
     return output_file
-
+    
 def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None):
     """Faz upload para YouTube"""
     try:
