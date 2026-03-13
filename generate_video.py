@@ -1098,9 +1098,10 @@ def main():
             json.dump(logs, f, indent=2, ensure_ascii=False)
         
         # ── 1. DISTRIBUIÇÃO MULTIPLATAFORMA ─────────────────────────────
+        thumb_youtube = thumbnail_path  # customizada pelo usuário (prioridade)
         try:
             from distribuidor import distribuir
-            distribuir(
+            resultado_dist = distribuir(
                 titulo=titulo,
                 roteiro=roteiro,
                 url_youtube=url,
@@ -1109,10 +1110,30 @@ def main():
                 video_path=video_path,
                 midias_sincronizadas=midias_sincronizadas
             )
+ 
+            # Se não há thumbnail customizada, usa a gerada pelo distribuidor
+            if not thumb_youtube and resultado_dist.get('thumbnail_916'):
+                thumb_youtube = resultado_dist['thumbnail_916']
+                print(f"🖼️ Usando thumbnail Canal 55 9:16 no YouTube")
+ 
         except Exception as e:
             print(f"⚠️ Distribuição falhou (não crítico): {e}")
             import traceback
             traceback.print_exc()
+ 
+        # Atualiza thumbnail no YouTube se tiver uma gerada
+        if thumb_youtube and os.path.exists(thumb_youtube):
+            try:
+                creds_dict = json.loads(YOUTUBE_CREDENTIALS)
+                credentials = Credentials.from_authorized_user_info(creds_dict)
+                youtube_svc = build('youtube', 'v3', credentials=credentials)
+                youtube_svc.thumbnails().set(
+                    videoId=video_id,
+                    media_body=MediaFileUpload(thumb_youtube)
+                ).execute()
+                print("✅ Thumbnail Canal 55 aplicada no YouTube!")
+            except Exception as e:
+                print(f"⚠️ Erro ao aplicar thumbnail no YouTube: {e}")
         
         # ── 2. ENVIO PARA BOT PESSOAL (curadoria) ───────────────────────
         if USAR_CURACAO:
