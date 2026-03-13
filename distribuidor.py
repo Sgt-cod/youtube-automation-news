@@ -529,67 +529,64 @@ def distribuir(titulo: str, roteiro: str, url_youtube: str, tags: list,
                video_path: str | None = None,
                midias_sincronizadas: list | None = None) -> dict:
     """
-    Chamada no generate_video.py após upload YouTube:
-
-        from distribuidor import distribuir
-        distribuir(
-            titulo=titulo,
-            roteiro=roteiro,
-            url_youtube=url,
-            tags=tags,
-            thumbnail_path=thumbnail_path,
-            video_path=video_path,
-            midias_sincronizadas=midias_sincronizadas
-        )
+    Chamada no generate_video.py após upload YouTube.
+    Retorna dict com resultados E caminho da thumbnail gerada.
     """
-    # Remove #shorts do título antes de qualquer uso externo
     titulo = _limpar_titulo(titulo)
-
+ 
     print("\n" + "="*60)
     print("🚀 DISTRIBUIÇÃO — Canal 55 Notícias")
     print("="*60)
-
+ 
     res = {
-        'thumbnail':     None,
+        'thumbnail':      None,
+        'thumbnail_916':  None,   # ← versão 9:16 para YouTube
         'telegram_canal': False,
-        'blogger_url':   None,
-        'twitter':       False,
-        'instagram':     False,
-        'timestamp':     datetime.now().isoformat()
+        'blogger_url':    None,
+        'twitter':        False,
+        'instagram':      False,
+        'timestamp':      datetime.now().isoformat()
     }
-
-    # Gerar thumbnail
-    print("\n🖼️ Gerando thumbnail...")
+ 
+    # Gerar thumbnail quadrada (Telegram + Blogger)
+    print("\n🖼️ Gerando thumbnails...")
     fundo = obter_primeira_midia_match(midias_sincronizadas) if midias_sincronizadas else None
     if fundo:
         print(f"  📁 Fundo: {fundo}")
     else:
         print("  ⚠️ Sem match — fundo sólido")
-    thumb = gerar_thumbnail(titulo, fundo, '/tmp/thumbnail_canal55.jpg')
-    res['thumbnail'] = thumb
-
-    # Distribuição — cada plataforma independente
+ 
+    thumb_1x1 = gerar_thumbnail(titulo, fundo, '/tmp/thumbnail_canal55.jpg',
+                                 tamanho=(1080, 1080))
+    res['thumbnail'] = thumb_1x1
+ 
+    # Gerar thumbnail 9:16 (YouTube Shorts)
+    thumb_916 = gerar_thumbnail(titulo, fundo, '/tmp/thumbnail_canal55_916.jpg',
+                                tamanho=(1080, 1920))
+    res['thumbnail_916'] = thumb_916
+ 
+    thumb = thumb_1x1  # Telegram e Blogger usam a quadrada
+ 
+    # Distribuição
     res['telegram_canal'] = publicar_telegram_canal(titulo, roteiro, url_youtube, thumb)
     time.sleep(2)
-
-    res['blogger_url'] = publicar_blogger(titulo, roteiro, url_youtube, tags, thumb)
+    res['blogger_url']    = publicar_blogger(titulo, roteiro, url_youtube, tags, thumb)
     time.sleep(2)
-
-    res['twitter'] = publicar_twitter(titulo, url_youtube)
+    res['twitter']        = publicar_twitter(titulo, url_youtube)
     time.sleep(2)
-
     if video_path:
-        res['instagram'] = publicar_instagram_reels(
+        res['instagram']  = publicar_instagram_reels(
             video_path, titulo, roteiro, url_youtube, thumb)
-
-    # Resumo final
+ 
+    # Resumo
     print("\n" + "="*60)
     print("📊 RESULTADO DA DISTRIBUIÇÃO")
-    print(f"  🖼️  Thumbnail  : {'✅' if res['thumbnail'] else '❌'}")
-    print(f"  📣  Telegram   : {'✅' if res['telegram_canal'] else '❌'}")
-    print(f"  📝  Blogger    : {'✅' if res['blogger_url'] else '❌'}")
-    print(f"  🐦  Twitter/X  : {'✅' if res['twitter'] else '❌'}")
-    print(f"  📸  Instagram  : {'✅' if res['instagram'] else '❌'}")
+    print(f"  🖼️  Thumbnail 1:1 : {'✅' if res['thumbnail'] else '❌'}")
+    print(f"  🖼️  Thumbnail 9:16: {'✅' if res['thumbnail_916'] else '❌'}")
+    print(f"  📣  Telegram      : {'✅' if res['telegram_canal'] else '❌'}")
+    print(f"  📝  Blogger       : {'✅' if res['blogger_url'] else '❌'}")
+    print(f"  🐦  Twitter/X     : {'✅' if res['twitter'] else '❌'}")
+    print(f"  📸  Instagram     : {'✅' if res['instagram'] else '❌'}")
     print("="*60)
-
+ 
     return res
