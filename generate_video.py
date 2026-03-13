@@ -650,7 +650,7 @@ def preparar_clip_video(video_path, duracao_alvo, orientacao='short'):
         return None
 
 def _mixar_musica_fundo(audio_narracao, duracao_total: float,
-                         volume: float = 0.06,
+                         volume: float = 0.09,
                          musicas_dir: str = 'assets/musicas'):
     """
     Escolhe uma música aleatória da pasta assets/musicas/,
