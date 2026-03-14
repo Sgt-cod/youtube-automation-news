@@ -54,6 +54,8 @@ jobs:
           TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
+          INSTAGRAM_USERNAME: ${{ secrets.INSTAGRAM_USERNAME }}
+          INSTAGRAM_PASSWORD: ${{ secrets.INSTAGRAM_PASSWORD }}
           USAR_CURACAO: true
           CURACAO_TIMEOUT: 3600
           VIDEO_TYPE: short
