@@ -47,6 +47,7 @@ TWITTER_ACCESS_TOKEN        = os.environ.get('TWITTER_ACCESS_TOKEN', '')
 TWITTER_ACCESS_TOKEN_SECRET = os.environ.get('TWITTER_ACCESS_TOKEN_SECRET', '')
 INSTAGRAM_USERNAME          = os.environ.get('INSTAGRAM_USERNAME', '')
 INSTAGRAM_PASSWORD          = os.environ.get('INSTAGRAM_PASSWORD', '')
+INSTAGRAM_SESSION           = os.environ.get('INSTAGRAM_SESSION', '')
 CANAL_YOUTUBE_URL           = os.environ.get('CANAL_YOUTUBE_URL', '')
 KOFI_URL                    = os.environ.get('KOFI_URL', '')
 KIRVANO_URL                 = os.environ.get('KIRVANO_URL', '')
@@ -463,39 +464,38 @@ def publicar_instagram_reels(video_path: str, titulo: str, roteiro: str,
     if not INSTAGRAM_USERNAME or not INSTAGRAM_PASSWORD:
         print("  ⚠️ Instagram não configurado — pulando")
         return False
-
     if not video_path or not os.path.exists(video_path):
         print("  ⚠️ Vídeo não encontrado — pulando Instagram")
         return False
-
+ 
     print("\n📸 Publicando no Instagram (Reels)...")
-
+ 
     try:
         from instagrapi import Client as InstaClient
-
-        session_file = '/tmp/insta_session.json'
+ 
         cl = InstaClient()
         cl.delay_range = [2, 5]
-
-        logged = False
-        if os.path.exists(session_file):
+ 
+        # Carrega sessão salva como secret (não expira entre execuções)
+        if INSTAGRAM_SESSION:
             try:
-                cl.load_settings(session_file)
+                session_data = json.loads(INSTAGRAM_SESSION)
+                cl.set_settings(session_data)
                 cl.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
                 cl.get_timeline_feed()
-                logged = True
-                print("  🔑 Sessão reutilizada")
-            except Exception:
-                logged = False
-
-        if not logged:
+                print("  🔑 Sessão carregada do secret")
+            except Exception as e:
+                print(f"  ⚠️ Sessão inválida ({e}), fazendo login...")
+                cl = InstaClient()
+                cl.delay_range = [2, 5]
+                cl.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
+                print("  🔑 Login realizado — atualize o secret INSTAGRAM_SESSION")
+        else:
             cl.login(INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD)
-            cl.dump_settings(session_file)
-            print("  🔑 Login realizado")
-
+            print("  🔑 Login sem sessão — adicione secret INSTAGRAM_SESSION")
+ 
         resumo = (roteiro[:300].rsplit(' ', 1)[0] + '...'
                   if len(roteiro) > 300 else roteiro)
-
         legenda = (
             f"🗞 {titulo}\n\n{resumo}\n\n"
             f"▶️ Assista no YouTube:\n{url_youtube}\n"
@@ -505,12 +505,13 @@ def publicar_instagram_reels(video_path: str, titulo: str, roteiro: str,
             f"#Política #Brasil #Notícias #Canal55 #PoliticaBrasileira "
             f"#Congresso #STF #Governo"
         )
-
-        cover = Path(thumbnail_path) if thumbnail_path and os.path.exists(thumbnail_path) else None
+ 
+        cover = (Path(thumbnail_path)
+                 if thumbnail_path and os.path.exists(thumbnail_path) else None)
         media = cl.clip_upload(Path(video_path), caption=legenda, thumbnail=cover)
         print(f"  ✅ Reel publicado! ID: {media.pk}")
         return True
-
+ 
     except ImportError:
         print("  ❌ instagrapi não instalado — adicione ao requirements.txt")
         return False
