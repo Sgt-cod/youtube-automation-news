@@ -260,56 +260,82 @@ def gerar_thumbnail(titulo: str, fundo_path: str | None = None,
 def publicar_telegram_canal(titulo: str, roteiro: str, url_youtube: str,
                              thumbnail_path: str | None = None) -> bool:
     if not TELEGRAM_CANAL_ID:
-        print("  ⚠️ TELEGRAM_CANAL_ID não configurado — pulando")
+        print("  ⚠️ TELEGRAM_CANAL_ID não configurado — pulando canal")
         return False
-
+ 
     print("\n📣 Publicando no canal Telegram...")
-
-    resumo = (roteiro[:280].rsplit(' ', 1)[0] + '...'
-              if len(roteiro) > 280 else roteiro)
-    canal  = f'\n📺 {CANAL_YOUTUBE_URL}' if CANAL_YOUTUBE_URL else ''
-
-    legenda = (
-        f"🗞 <b>{titulo}</b>\n\n"
-        f"{resumo}\n\n"
-        f"▶️ <b>Assista agora:</b>\n{url_youtube}"
-        f"{canal}"
-        f"\n\n🔔 Inscreva-se e ative o sininho!"
-        f"{_apoio_texto()}"
-    )
-
-    base = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-
-    if thumbnail_path and os.path.exists(thumbnail_path):
-        try:
-            with open(thumbnail_path, 'rb') as img:
-                r = requests.post(
-                    f"{base}/sendPhoto",
-                    data={'chat_id': TELEGRAM_CANAL_ID,
-                          'caption': legenda[:1024],
-                          'parse_mode': 'HTML'},
-                    files={'photo': img},
-                    timeout=30
-                )
-            ok = r.json().get('ok', False)
-            print(f"  {'✅ Publicado com imagem!' if ok else '❌ Falha: ' + str(r.json().get('description'))}")
-            return ok
-        except Exception as e:
-            print(f"  ❌ Erro: {e}")
-
-    # Fallback sem imagem
+ 
     try:
-        r = requests.post(
-            f"{base}/sendMessage",
-            json={'chat_id': TELEGRAM_CANAL_ID, 'text': legenda,
-                  'parse_mode': 'HTML', 'disable_web_page_preview': False},
-            timeout=30
+        base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+ 
+        # Legenda completa — igual ao Blogger
+        apoio = _apoio_texto()
+        legenda = (
+            f"📰 <b>{titulo}</b>\n\n"
+            f"{roteiro}\n\n"
+            f"▶️ <b>Assista agora:</b>\n"
+            f"{url_youtube}\n"
+            f"{'📺 ' + CANAL_YOUTUBE_URL if CANAL_YOUTUBE_URL else ''}\n\n"
+            f"🔔 Inscreva-se e ative o sininho!\n"
+            f"{apoio}"
         )
-        ok = r.json().get('ok', False)
-        print(f"  {'✅ Publicado (sem imagem)' if ok else '❌ Falha'}")
+ 
+        # Telegram limita legenda de foto a 1024 chars — se passar, envia foto + texto separado
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            if len(legenda) <= 1024:
+                # Tudo junto
+                with open(thumbnail_path, 'rb') as f:
+                    r = requests.post(
+                        f"{base_url}/sendPhoto",
+                        data={'chat_id': TELEGRAM_CANAL_ID,
+                              'caption': legenda,
+                              'parse_mode': 'HTML'},
+                        files={'photo': f},
+                        timeout=30
+                    )
+                ok = r.json().get('ok', False)
+            else:
+                # Foto primeiro, depois texto completo
+                with open(thumbnail_path, 'rb') as f:
+                    r = requests.post(
+                        f"{base_url}/sendPhoto",
+                        data={'chat_id': TELEGRAM_CANAL_ID,
+                              'caption': f"📰 <b>{titulo}</b>",
+                              'parse_mode': 'HTML'},
+                        files={'photo': f},
+                        timeout=30
+                    )
+ 
+                # Texto completo em mensagem separada
+                requests.post(
+                    f"{base_url}/sendMessage",
+                    json={'chat_id': TELEGRAM_CANAL_ID,
+                          'text': legenda,
+                          'parse_mode': 'HTML',
+                          'disable_web_page_preview': True},
+                    timeout=15
+                )
+                ok = r.json().get('ok', False)
+        else:
+            # Sem imagem — só texto
+            r = requests.post(
+                f"{base_url}/sendMessage",
+                json={'chat_id': TELEGRAM_CANAL_ID,
+                      'text': legenda,
+                      'parse_mode': 'HTML',
+                      'disable_web_page_preview': True},
+                timeout=15
+            )
+            ok = r.json().get('ok', False)
+ 
+        if ok:
+            print("  ✅ Publicado com roteiro completo!")
+        else:
+            print(f"  ❌ Falhou: {r.json()}")
         return ok
+ 
     except Exception as e:
-        print(f"  ❌ Erro: {e}")
+        print(f"  ❌ Erro Telegram canal: {e}")
         return False
 
 
