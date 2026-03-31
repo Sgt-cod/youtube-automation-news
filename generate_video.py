@@ -1037,6 +1037,7 @@ def main():
         return
     
     # Preparar metadados
+    titulo_completo = titulo_video  # título original para thumbnail e Telegram
     titulo = titulo_video[:60] if len(titulo_video) <= 60 else titulo_video[:57] + '...'
     if VIDEO_TYPE == 'short':
         titulo += ' #shorts'
@@ -1102,7 +1103,7 @@ def main():
         try:
             from distribuidor import distribuir
             resultado_dist = distribuir(
-                titulo=titulo,
+                titulo=titulo_completo,
                 roteiro=roteiro,
                 url_youtube=url,
                 tags=tags,
