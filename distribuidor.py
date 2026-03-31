@@ -101,25 +101,22 @@ def obter_primeira_midia_match(midias_sincronizadas: list) -> str | None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# THUMBNAIL — imagem Canal 55 com fundo + título + logo
+# Substitua a função gerar_thumbnail() inteira no distribuidor.py
+# Correções:
+#   - Título sempre completo (fonte reduz até caber)
+#   - Logo e "LEIA NA LEGENDA" calculados de baixo para cima (sem sobreposição)
 # ════════════════════════════════════════════════════════════════════════════
 
-# ════════════════════════════════════════════════════════════════════════════
-# CORREÇÃO 1 — No distribuidor.py
-# Substitua a função gerar_thumbnail() inteira
-# Título agora sempre aparece completo — fonte se ajusta automaticamente
-# ════════════════════════════════════════════════════════════════════════════
- 
 def gerar_thumbnail(titulo: str, fundo_path: str | None = None,
                     output_path: str = '/tmp/thumbnail_canal55.jpg',
                     tamanho: tuple = (1080, 1080)) -> str | None:
     try:
         import textwrap
         from PIL import Image, ImageDraw, ImageFont
- 
+
         W, H = tamanho
         titulo_limpo = titulo.replace(' #shorts', '').replace('#shorts', '').strip()
- 
+
         # ── Fundo ─────────────────────────────────────────────────────────
         if fundo_path and os.path.exists(fundo_path):
             try:
@@ -139,113 +136,103 @@ def gerar_thumbnail(titulo: str, fundo_path: str | None = None,
                 img = Image.new('RGB', (W, H), (15, 15, 30))
         else:
             img = Image.new('RGB', (W, H), (15, 15, 30))
- 
+
         draw = ImageDraw.Draw(img)
- 
-        # ── Faixa vermelha no topo ─────────────────────────────────────────
-        faixa_h = 95
-        draw.rectangle([(0, 0), (W, faixa_h)], fill='#cc0000')
- 
+
         def font(size, bold=True):
             nome = 'DejaVuSans-Bold.ttf' if bold else 'DejaVuSans.ttf'
-            caminhos = [
-                f'/usr/share/fonts/truetype/dejavu/{nome}',
-                f'/usr/share/fonts/dejavu/{nome}',
-            ]
-            for c in caminhos:
+            for base in ['/usr/share/fonts/truetype/dejavu/',
+                         '/usr/share/fonts/dejavu/']:
                 try:
-                    return ImageFont.truetype(c, size)
+                    return ImageFont.truetype(base + nome, size)
                 except Exception:
                     continue
             return ImageFont.load_default()
- 
-        # Texto da faixa
+
+        # ── Faixa vermelha no topo ─────────────────────────────────────────
+        FAIXA_H = 95
+        draw.rectangle([(0, 0), (W, FAIXA_H)], fill='#cc0000')
         f_faixa = font(50)
         canal_txt = 'CANAL 55 NOTÍCIAS'
         bb = draw.textbbox((0, 0), canal_txt, font=f_faixa)
-        draw.text(((W - (bb[2]-bb[0])) // 2, (faixa_h - (bb[3]-bb[1])) // 2),
+        draw.text(((W - (bb[2]-bb[0])) // 2, (FAIXA_H - (bb[3]-bb[1])) // 2),
                   canal_txt, font=f_faixa, fill='white')
- 
+
+        # ── Zona inferior — calculada de baixo para cima ───────────────────
+        MARGEM_BASE = 15
+        MARGEM_LAT  = 60
+
+        # "LEIA NA LEGENDA"
+        f_leia  = font(36)
+        txt_leia = '👇 LEIA NA LEGENDA'
+        bb_leia  = draw.textbbox((0, 0), txt_leia, font=f_leia)
+        LEIA_H   = bb_leia[3] - bb_leia[1]
+
+        leia_y = H - MARGEM_BASE - LEIA_H          # y do texto
+        logo_y = leia_y - 10 - 180                  # logo 180px acima do texto
+        linha_y = logo_y - 12                        # linha vermelha acima da logo
+
         # ── Área disponível para o título ──────────────────────────────────
-        margem = 60
-        area_w = W - (margem * 2)
-        logo_h = 240
-        area_y_ini = faixa_h + 40
-        area_y_fim = H - logo_h - 40
-        area_h = area_y_fim - area_y_ini
- 
-        # Ajusta tamanho da fonte para caber o título COMPLETO
-        font_size = 82
-        f_titulo = None
-        linhas_titulo = []
-        while font_size >= 32:
+        area_w   = W - MARGEM_LAT * 2
+        area_y_ini = FAIXA_H + 30
+        area_y_fim = linha_y - 20
+        area_h   = area_y_fim - area_y_ini
+
+        # Ajusta fonte até título caber COMPLETO
+        font_size = 84
+        f_titulo  = None
+        linhas    = []
+        while font_size >= 28:
             f_titulo = font(font_size)
-            chars_por_linha = max(8, int(area_w / (font_size * 0.54)))
-            linhas_titulo = textwrap.wrap(titulo_limpo, width=chars_por_linha)
-            line_h = font_size + 14
-            if len(linhas_titulo) * line_h <= area_h:
+            chars    = max(8, int(area_w / (font_size * 0.56)))
+            linhas   = textwrap.wrap(titulo_limpo, width=chars)
+            line_h   = font_size + 16
+            if len(linhas) * line_h <= area_h:
                 break
-            font_size -= 4
- 
+            font_size -= 3
+
         # Centraliza verticalmente
-        line_h = font_size + 14
-        total_h = len(linhas_titulo) * line_h
+        line_h  = font_size + 16
+        total_h = len(linhas) * line_h
         y = area_y_ini + (area_h - total_h) // 2
- 
-        for linha in linhas_titulo:
+
+        for linha in linhas:
             bb = draw.textbbox((0, 0), linha, font=f_titulo)
             lw = bb[2] - bb[0]
-            x = (W - lw) // 2
-            # Sombra
+            x  = (W - lw) // 2
             draw.text((x + 3, y + 3), linha, font=f_titulo, fill=(0, 0, 0, 200))
-            draw.text((x, y), linha, font=f_titulo, fill='white')
+            draw.text((x, y),         linha, font=f_titulo, fill='white')
             y += line_h
- 
-        # ── Linha decorativa ───────────────────────────────────────────────
-        linha_y = H - logo_h - 18
-        draw.rectangle([(margem, linha_y), (W - margem, linha_y + 4)], fill='#cc0000')
- 
+
+        # ── Linha vermelha decorativa ──────────────────────────────────────
+        draw.rectangle([(MARGEM_LAT, linha_y), (W - MARGEM_LAT, linha_y + 5)],
+                       fill='#cc0000')
+
         # ── Logo Canal 55 ──────────────────────────────────────────────────
-        logo_paths = ['logo_canal55.png', 'assets/logo_canal55.png']
-        logo_carregado = False
-        for lp in logo_paths:
+        for lp in ['logo_canal55.png', 'assets/logo_canal55.png']:
             if os.path.exists(lp):
                 try:
-                    logo = Image.open(lp).convert('RGBA')
-                    logo_w = 200
-                    logo_h_real = int(logo.height * logo_w / logo.width)
-                    logo = logo.resize((logo_w, logo_h_real), Image.LANCZOS)
-                    lx = (W - logo_w) // 2
-                    ly = H - logo_h_real - 20
-                    img.paste(logo, (lx, ly), logo)
-                    logo_carregado = True
+                    LOGO_H = 180
+                    logo   = Image.open(lp).convert('RGBA')
+                    logo_w = int(logo.width * LOGO_H / logo.height)
+                    logo   = logo.resize((logo_w, LOGO_H), Image.LANCZOS)
+                    img.paste(logo, ((W - logo_w) // 2, logo_y), logo)
                     break
                 except Exception:
                     pass
- 
-        if not logo_carregado:
-            # Fallback: texto simples no lugar da logo
-            f_logo = font(36)
-            txt = 'Canal 55'
-            bb = draw.textbbox((0, 0), txt, font=f_logo)
-            draw.text(((W - (bb[2]-bb[0])) // 2, H - 80), txt, font=f_logo, fill='#cc0000')
- 
-        # ── Texto "LEIA NA LEGENDA" abaixo do logo ─────────────────────────
-        f_legenda = font(34)
-        txt_legenda = '👇 LEIA NA LEGENDA'
-        bb = draw.textbbox((0, 0), txt_legenda, font=f_legenda)
-        lw = bb[2] - bb[0]
-        lh = bb[3] - bb[1]
-        # Sombra
-        draw.text(((W - lw) // 2 + 2, H - lh - 10 + 2), txt_legenda,
-                  font=f_legenda, fill=(0, 0, 0, 180))
-        draw.text(((W - lw) // 2, H - lh - 10), txt_legenda,
-                  font=f_legenda, fill='white')
- 
+
+        # ── "LEIA NA LEGENDA" abaixo da logo ──────────────────────────────
+        bb   = draw.textbbox((0, 0), txt_leia, font=f_leia)
+        lw   = bb[2] - bb[0]
+        draw.text(((W - lw) // 2 + 2, leia_y + 2), txt_leia,
+                  font=f_leia, fill=(0, 0, 0, 180))
+        draw.text(((W - lw) // 2,     leia_y),     txt_leia,
+                  font=f_leia, fill='white')
+
         img.save(output_path, 'JPEG', quality=95)
-        print(f"  ✅ Thumbnail gerada: {output_path} (fonte {font_size}px, {len(linhas_titulo)} linhas)")
+        print(f"  ✅ Thumbnail: {output_path} | fonte {font_size}px | {len(linhas)} linhas")
         return output_path
- 
+
     except Exception as e:
         print(f"  ❌ Erro ao gerar thumbnail: {e}")
         import traceback
