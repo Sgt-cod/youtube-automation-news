@@ -68,9 +68,13 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add videos_gerados.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "📱 Novo short gerado - $(date +'%Y-%m-%d %H:%M')"
-          git push || echo "Nada para commitar"
+          git fetch origin main
+          git checkout main
+          git pull origin main --rebase
+          touch videos_gerados.json
+          git add -f videos_gerados.json
+          git diff --staged --quiet || git commit -m "📱 Novo short gerado - $(date +'%Y-%m-%d %H:%M')"
+          git push origin main || git push --force-with-lease origin main
       
       - name: Upload short como artefato
         uses: actions/upload-artifact@v4
