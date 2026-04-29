@@ -35,7 +35,7 @@ jobs:
           pip install --upgrade pip
           pip install requests google-generativeai \
             google-auth google-auth-oauthlib google-api-python-client \
-            edge-tts moviepy pillow feedparser
+            edge-tts "moviepy==1.0.3" pillow feedparser numpy
 
       - name: Gerar vídeo longo semanal
         env:
