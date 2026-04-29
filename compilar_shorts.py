@@ -174,8 +174,7 @@ def criar_audio(roteiro: str, output_path: str) -> bool:
 def montar_video(audio_path: str, output_path: str) -> bool:
     print("\n🎬 Montando vídeo longo...")
     try:
-        from moviepy.editor import (AudioFileClip, ImageClip,
-                                    CompositeVideoClip, concatenate_videoclips)
+        from moviepy import AudioFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
         from PIL import Image, ImageFilter
         import numpy as np
         import itertools
