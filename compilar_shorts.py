@@ -1,23 +1,17 @@
 """
 compilar_shorts.py — Vídeo Longo Semanal
 -----------------------------------------
-Toda segunda-feira gera um vídeo longo original com os principais
-temas da semana, baseado nos títulos dos shorts publicados.
-
-Fluxo:
-  1. Lê videos_gerados.json para obter temas da semana
-  2. Gemini gera roteiro longo (~5 min) cobrindo todos os temas
-  3. Edge TTS narra o roteiro
-  4. Imagens do assets/ ilustram o vídeo (igual aos shorts)
-  5. Publica no YouTube como vídeo longo
-  6. Distribui no Telegram e Blogger
+Toda segunda-feira gera um vídeo longo original buscando
+notícias diretamente dos feeds RSS (igual aos shorts).
+Não depende do videos_gerados.json.
 """
 
-import os, json, random, time, glob
-from datetime import datetime, timedelta
+import os, json, random, time, glob, re, asyncio
+from datetime import datetime
 from pathlib import Path
 
 import requests
+import feedparser
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -36,79 +30,96 @@ CANAL_YOUTUBE_URL    = os.environ.get('CANAL_YOUTUBE_URL', '')
 VIDEOS_DIR  = 'videos'
 ASSETS_DIR  = 'assets'
 LOG_FILE    = 'videos_gerados.json'
-MIN_TEMAS   = 3
 
+# Lê config.json para pegar os feeds RSS
+def _carregar_config():
+    for nome in ['config.json', 'config_noticias.json']:
+        if os.path.exists(nome):
+            with open(nome, encoding='utf-8') as f:
+                return json.load(f)
+    return {}
+
+config = _carregar_config()
 
 # ════════════════════════════════════════════════════════════════════════════
-# 1. LER TEMAS DA SEMANA
+# 1. GEMINI
 # ════════════════════════════════════════════════════════════════════════════
 
-def buscar_temas_semana() -> list[dict]:
-    print("📋 Buscando temas da semana no log...")
-    if not os.path.exists(LOG_FILE):
-        print("  ⚠️ videos_gerados.json não encontrado")
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-2.5-flash-lite')
+
+# ════════════════════════════════════════════════════════════════════════════
+# 2. BUSCAR NOTÍCIAS (mesmo mecanismo dos shorts)
+# ════════════════════════════════════════════════════════════════════════════
+
+def buscar_noticias_semana(quantidade=7) -> list[dict]:
+    """Busca notícias dos feeds RSS — igual ao generate_video.py."""
+    feeds = config.get('rss_feeds', [])
+    if not feeds:
+        print("  ⚠️ Nenhum feed RSS configurado")
         return []
 
-    with open(LOG_FILE, encoding='utf-8') as f:
-        logs = json.load(f)
+    todas = []
+    vistos = set()
+    print(f"🔍 Buscando notícias de {len(feeds)} feeds...")
 
-    semana_atras = datetime.now() - timedelta(days=7)
-    temas = []
-    for entry in logs:
-        if entry.get('tipo') != 'short':
-            continue
+    for feed_url in feeds[:3]:
         try:
-            data_entry = datetime.fromisoformat(entry['data'])
-        except Exception:
-            continue
-        if data_entry < semana_atras:
-            continue
-        temas.append({
-            'titulo': entry.get('tema', entry.get('titulo', '')),
-            'url': entry.get('url', ''),
-            'data': entry['data']
-        })
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries[:10]:
+                titulo = entry.title.strip()
+                chave = titulo.lower().strip('.,!?;: ')
+                if chave not in vistos:
+                    todas.append({
+                        'titulo': titulo,
+                        'resumo': entry.get('summary', titulo),
+                        'link': entry.link
+                    })
+                    vistos.add(chave)
+        except Exception as e:
+            print(f"  ❌ Erro feed: {e}")
 
-    temas.sort(key=lambda x: x['data'])
-    print(f"  ✅ {len(temas)} temas encontrados")
-    for t in temas:
-        print(f"     • {t['titulo'][:70]}")
-    return temas
+    random.shuffle(todas)
+    selecionadas = todas[:quantidade]
+    print(f"  ✅ {len(selecionadas)} notícias selecionadas")
+    for n in selecionadas:
+        print(f"     • {n['titulo'][:65]}")
+    return selecionadas
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 2. GEMINI — gerar roteiro longo
+# 3. GEMINI — gerar roteiro longo + metadados
 # ════════════════════════════════════════════════════════════════════════════
 
-def gerar_roteiro_semanal(temas: list[dict]) -> dict:
+def gerar_roteiro_e_metadados(noticias: list[dict]) -> dict:
     print("\n✍️ Gerando roteiro semanal com Gemini...")
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
-    lista = '\n'.join(f"- {t['titulo']}" for t in temas)
+    lista = '\n'.join(
+        f"- {n['titulo']}: {n['resumo'][:150]}" for n in noticias
+    )
     semana_str = datetime.now().strftime('%d/%m/%Y')
 
     prompt = f"""Você é um jornalista político brasileiro do canal "Canal 55 Notícias".
 
-Esta semana foram publicados os seguintes shorts sobre política:
+As principais notícias desta semana são:
 {lista}
 
-Crie um ROTEIRO COMPLETO para um vídeo longo de resumo semanal (5 a 7 minutos de duração).
+Crie um ROTEIRO COMPLETO para um vídeo de análise semanal (5 a 7 minutos).
 
-Regras:
-- Comece com uma introdução apresentando o resumo da semana
-- Dedique um parágrafo para cada tema, aprofundando a análise
-- Use linguagem jornalística clara, direta e imparcial
-- Termine com uma conclusão sobre o cenário político da semana
-- NÃO use markdown, bullets ou formatação especial — só texto corrido
-- Escreva como se fosse narrado em voz alta
+Regras do roteiro:
+- Introdução apresentando os principais temas da semana
+- Um parágrafo aprofundado para cada notícia
+- Linguagem jornalística clara, direta e imparcial
+- Conclusão sobre o cenário político da semana
+- SEM markdown, bullets ou formatação — apenas texto corrido para narração
+- Aproximadamente 900 a 1200 palavras
 
-Retorne APENAS JSON válido:
+Retorne APENAS JSON válido (sem markdown):
 {{
-  "titulo": "título do vídeo até 80 chars com emojis",
-  "roteiro": "texto completo do roteiro para narração",
-  "descricao": "descrição para YouTube de 300-500 chars com hashtags",
-  "tags": ["tag1", "tag2", "politica", "brasil", "noticias", "resumo", "semanal"]
+  "titulo": "título atraente até 80 chars com emojis",
+  "roteiro": "texto completo do roteiro",
+  "descricao": "descrição YouTube de 300-500 chars com hashtags",
+  "tags": ["politica", "brasil", "noticias", "resumo", "semanal", "canal55"]
 }}"""
 
     try:
@@ -117,41 +128,39 @@ Retorne APENAS JSON válido:
         inicio = texto.find('{')
         fim = texto.rfind('}') + 1
         dados = json.loads(texto[inicio:fim])
-        print(f"  ✅ Roteiro gerado: {len(dados['roteiro'])} chars")
+        print(f"  ✅ Roteiro: {len(dados['roteiro'].split())} palavras")
         print(f"  📺 Título: {dados['titulo']}")
         return dados
     except Exception as e:
         print(f"  ⚠️ Gemini falhou: {e} — usando fallback")
+        titulos = '. '.join(n['titulo'] for n in noticias[:3])
         semana = datetime.now().strftime('%d/%m')
-        titulos_str = '. '.join(t['titulo'] for t in temas)
         return {
-            'titulo': f'📰 Resumo Político Semanal — {semana}',
-            'roteiro': f"Esta semana foi marcada por importantes acontecimentos políticos no Brasil. {titulos_str}. Acompanhe o Canal 55 Notícias para não perder nenhuma atualização.",
-            'descricao': f'Resumo dos principais acontecimentos políticos da semana. #política #brasil #noticias #resumosemanal',
+            'titulo': f'📰 Análise Política Semanal — {semana}',
+            'roteiro': f"Esta semana a política brasileira foi marcada por importantes acontecimentos. {titulos}. Acompanhe o Canal 55 Notícias para não perder nenhuma atualização.",
+            'descricao': f'Análise dos principais acontecimentos políticos da semana. #política #brasil #noticias #canal55',
             'tags': ['política', 'brasil', 'noticias', 'resumo', 'semanal', 'canal55']
         }
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 3. ÁUDIO — Edge TTS
+# 4. ÁUDIO — Edge TTS (mesma voz dos shorts)
 # ════════════════════════════════════════════════════════════════════════════
 
 def criar_audio(roteiro: str, output_path: str) -> bool:
     print("\n🎙️ Gerando áudio...")
-    import asyncio, edge_tts
+    import edge_tts
+
+    voz = config.get('voz', 'pt-BR-AntonioNeural')
 
     async def _gerar():
-        communicate = edge_tts.Communicate(
-            roteiro,
-            voice="pt-BR-AntonioNeural",
-            rate="+5%"
-        )
+        communicate = edge_tts.Communicate(roteiro, voz, rate="+0%")
         await communicate.save(output_path)
 
     try:
         asyncio.run(_gerar())
         tamanho = os.path.getsize(output_path) / 1024
-        print(f"  ✅ Áudio gerado: {tamanho:.0f} KB")
+        print(f"  ✅ Áudio: {tamanho:.0f} KB")
         return True
     except Exception as e:
         print(f"  ❌ Erro TTS: {e}")
@@ -159,7 +168,7 @@ def criar_audio(roteiro: str, output_path: str) -> bool:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 4. VÍDEO — montar com imagens do assets
+# 5. VÍDEO — pillarbox com blur para imagens 9:16
 # ════════════════════════════════════════════════════════════════════════════
 
 def montar_video(audio_path: str, output_path: str) -> bool:
@@ -167,13 +176,17 @@ def montar_video(audio_path: str, output_path: str) -> bool:
     try:
         from moviepy.editor import (AudioFileClip, ImageClip,
                                     CompositeVideoClip, concatenate_videoclips)
+        from PIL import Image, ImageFilter
+        import numpy as np
         import itertools
+
+        W, H = 1920, 1080  # 16:9
 
         audio = AudioFileClip(audio_path)
         duracao = audio.duration
-        print(f"  ⏱️ Duração: {duracao:.1f}s")
+        print(f"  ⏱️ Duração: {duracao:.1f}s ({duracao/60:.1f}min)")
 
-        # Buscar todas as imagens disponíveis
+        # Buscar imagens disponíveis
         imagens = (
             glob.glob(f'{ASSETS_DIR}/politicos/**/*.jpg', recursive=True) +
             glob.glob(f'{ASSETS_DIR}/politicos/**/*.png', recursive=True) +
@@ -186,7 +199,7 @@ def montar_video(audio_path: str, output_path: str) -> bool:
         if not imagens:
             print("  ⚠️ Sem imagens — usando fundo sólido")
             from moviepy.editor import ColorClip
-            clip = ColorClip(size=(1920, 1080), color=(15, 15, 30), duration=duracao)
+            clip = ColorClip(size=(W, H), color=(15,15,30), duration=duracao)
             video = clip.set_audio(audio)
         else:
             random.shuffle(imagens)
@@ -194,33 +207,73 @@ def montar_video(audio_path: str, output_path: str) -> bool:
             clips = []
             tempo = 0.0
 
+            def fazer_frame_pillarbox(img_path, dur):
+                """Converte imagem 9:16 para 16:9 com pillarbox+blur."""
+                try:
+                    img = Image.open(img_path).convert('RGB')
+                    iw, ih = img.size
+
+                    # Fundo: escala para 1920x1080 e aplica blur forte
+                    ratio_bg = W / H
+                    if iw / ih > ratio_bg:
+                        bg = img.resize((W, int(W * ih / iw)), Image.LANCZOS)
+                    else:
+                        bg = img.resize((int(H * iw / ih), H), Image.LANCZOS)
+
+                    # Crop centralizado para 1920x1080
+                    bw, bh = bg.size
+                    left = (bw - W) // 2
+                    top  = (bh - H) // 2
+                    bg = bg.crop((max(0,left), max(0,top),
+                                  max(0,left)+W, max(0,top)+H))
+                    if bg.size != (W, H):
+                        bg = bg.resize((W, H), Image.LANCZOS)
+
+                    # Blur forte no fundo
+                    bg = bg.filter(ImageFilter.GaussianBlur(radius=25))
+
+                    # Frente: imagem original proporcional, altura = H
+                    scale = H / ih
+                    fw = int(iw * scale)
+                    fh = H
+                    if fw > W:  # se for mais larga, limita pela largura
+                        scale = W / iw
+                        fw = W
+                        fh = int(ih * scale)
+                    front = img.resize((fw, fh), Image.LANCZOS)
+
+                    # Centraliza a frente no fundo
+                    x = (W - fw) // 2
+                    y = (H - fh) // 2
+                    bg.paste(front, (x, y))
+
+                    frame = np.array(bg)
+                    return ImageClip(frame, duration=dur)
+                except Exception as e:
+                    print(f"    ⚠️ Pillarbox falhou ({e}), usando resize simples")
+                    clip = ImageClip(img_path, duration=dur)
+                    return clip.resize((W, H))
+
             for img_path in itertools.cycle(imagens):
                 if tempo >= duracao:
                     break
                 dur = min(duracao_por_img, duracao - tempo)
                 try:
-                    clip = ImageClip(img_path, duration=dur)
-                    clip = clip.resize(height=1080)
-                    if clip.w < 1920:
-                        clip = clip.resize(width=1920)
-                    clip = clip.crop(x_center=clip.w/2, y_center=clip.h/2,
-                                     width=1920, height=1080)
-                    if clip.size != (1920, 1080):
-                        clip = clip.resize((1920, 1080))
+                    clip = fazer_frame_pillarbox(img_path, dur)
                     # Zoom suave
-                    clip = clip.resize(lambda t: 1 + 0.02 * (t / dur))
+                    clip = clip.resize(lambda t: 1 + 0.015 * (t / dur))
                     clip = clip.set_start(tempo)
                     clips.append(clip)
                     tempo += dur
                 except Exception as e:
-                    print(f"  ⚠️ Erro imagem {img_path}: {e}")
+                    print(f"  ⚠️ Erro imagem: {e}")
                     continue
 
             if not clips:
                 print("  ❌ Nenhum clip criado")
                 return False
 
-            video_base = CompositeVideoClip(clips, size=(1920, 1080))
+            video_base = CompositeVideoClip(clips, size=(W, H))
             video_base = video_base.set_duration(duracao)
             video = video_base.set_audio(audio)
 
@@ -236,7 +289,8 @@ def montar_video(audio_path: str, output_path: str) -> bool:
             threads=4,
             logger=None
         )
-        print(f"  ✅ Vídeo: {output_path}")
+        tamanho_mb = os.path.getsize(output_path) / (1024*1024)
+        print(f"  ✅ Vídeo: {output_path} ({tamanho_mb:.1f} MB)")
         return True
 
     except Exception as e:
@@ -246,7 +300,7 @@ def montar_video(audio_path: str, output_path: str) -> bool:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 5. YOUTUBE — publicar
+# 6. YOUTUBE — publicar
 # ════════════════════════════════════════════════════════════════════════════
 
 def publicar_youtube(video_path: str, metadados: dict) -> str | None:
@@ -254,7 +308,6 @@ def publicar_youtube(video_path: str, metadados: dict) -> str | None:
     try:
         creds = Credentials.from_authorized_user_info(json.loads(YOUTUBE_CREDENTIALS))
         yt = build('youtube', 'v3', credentials=creds)
-
         body = {
             'snippet': {
                 'title':       metadados['titulo'][:100],
@@ -263,13 +316,14 @@ def publicar_youtube(video_path: str, metadados: dict) -> str | None:
                 'categoryId':  '27'
             },
             'status': {
-                'privacyStatus':          'public',
-                'selfDeclaredMadeForKids': False
+                'privacyStatus':           'public',
+                'selfDeclaredMadeForKids':  False
             }
         }
         media = MediaFileUpload(video_path, resumable=True)
-        req = yt.videos().insert(part='snippet,status', body=body, media_body=media)
-        resp = req.execute()
+        resp  = yt.videos().insert(
+            part='snippet,status', body=body, media_body=media
+        ).execute()
         url = f"https://www.youtube.com/watch?v={resp['id']}"
         print(f"  ✅ Publicado: {url}")
         return url
@@ -279,7 +333,7 @@ def publicar_youtube(video_path: str, metadados: dict) -> str | None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# 6. DISTRIBUIÇÃO — Telegram + Blogger
+# 7. DISTRIBUIÇÃO
 # ════════════════════════════════════════════════════════════════════════════
 
 def _tg(chat_id, texto):
@@ -295,16 +349,11 @@ def _tg(chat_id, texto):
     except Exception:
         pass
 
-
 def distribuir(titulo, roteiro, url_yt, tags):
     print("\n📣 Distribuindo...")
-
-    # Telegram pessoal
     _tg(TELEGRAM_CHAT_ID,
-        f"🎬 <b>VÍDEO LONGO PUBLICADO</b>\n\n{titulo}\n\n🔗 {url_yt}")
+        f"🎬 <b>ANÁLISE SEMANAL PUBLICADA</b>\n\n{titulo}\n\n🔗 {url_yt}")
     time.sleep(2)
-
-    # Canal Telegram
     if TELEGRAM_CANAL_ID:
         _tg(TELEGRAM_CANAL_ID,
             f"📰 <b>{titulo}</b>\n\n"
@@ -313,8 +362,6 @@ def distribuir(titulo, roteiro, url_yt, tags):
             f"🔔 Inscreva-se!\n"
             f"{'📺 ' + CANAL_YOUTUBE_URL if CANAL_YOUTUBE_URL else ''}")
     time.sleep(2)
-
-    # Blogger
     if BLOGGER_BLOG_ID and BLOGGER_CREDENTIALS:
         try:
             from distribuidor import publicar_blogger
@@ -329,21 +376,19 @@ def distribuir(titulo, roteiro, url_yt, tags):
 # ════════════════════════════════════════════════════════════════════════════
 
 def main():
-    print("🎬 VÍDEO LONGO SEMANAL — Canal 55 Notícias")
+    print("🎬 ANÁLISE SEMANAL — Canal 55 Notícias")
     print("=" * 60)
-
     os.makedirs(VIDEOS_DIR, exist_ok=True)
 
-    # 1. Temas da semana
-    temas = buscar_temas_semana()
-    if len(temas) < MIN_TEMAS:
-        print(f"\n⚠️ Apenas {len(temas)} temas esta semana (mínimo: {MIN_TEMAS}). Abortando.")
-        _tg(TELEGRAM_CHAT_ID,
-            f"⚠️ Vídeo longo cancelado: apenas {len(temas)} shorts esta semana.")
+    # 1. Notícias
+    noticias = buscar_noticias_semana(quantidade=7)
+    if len(noticias) < 3:
+        print(f"\n⚠️ Apenas {len(noticias)} notícias encontradas. Abortando.")
+        _tg(TELEGRAM_CHAT_ID, "⚠️ Análise semanal cancelada: sem notícias suficientes.")
         return
 
     # 2. Roteiro
-    metadados = gerar_roteiro_semanal(temas)
+    metadados = gerar_roteiro_e_metadados(noticias)
 
     # 3. Áudio
     audio_path = f'{ASSETS_DIR}/audio_semanal.mp3'
@@ -352,7 +397,7 @@ def main():
         return
 
     # 4. Vídeo
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp  = datetime.now().strftime('%Y%m%d_%H%M%S')
     video_path = f'{VIDEOS_DIR}/semanal_{timestamp}.mp4'
     if not montar_video(audio_path, video_path):
         print("❌ Falha no vídeo. Abortando.")
@@ -370,20 +415,23 @@ def main():
     # 7. Log
     logs = []
     if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, encoding='utf-8') as f:
-            logs = json.load(f)
+        try:
+            with open(LOG_FILE, encoding='utf-8') as f:
+                logs = json.load(f)
+        except Exception:
+            logs = []
     logs.append({
         'data':    datetime.now().isoformat(),
         'tipo':    'semanal',
         'titulo':  metadados['titulo'],
         'url':     url_yt,
-        'temas':   [t['titulo'] for t in temas]
+        'noticias': [n['titulo'] for n in noticias]
     })
     with open(LOG_FILE, 'w', encoding='utf-8') as f:
         json.dump(logs, f, indent=2, ensure_ascii=False)
 
     print("\n" + "=" * 60)
-    print("✅ VÍDEO LONGO SEMANAL CONCLUÍDO!")
+    print("✅ ANÁLISE SEMANAL CONCLUÍDA!")
     print(f"🔗 {url_yt}")
     print("=" * 60)
 
