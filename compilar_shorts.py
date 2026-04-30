@@ -171,21 +171,23 @@ def criar_audio(roteiro: str, output_path: str) -> bool:
 # 5. VÍDEO — pillarbox com blur para imagens 9:16
 # ════════════════════════════════════════════════════════════════════════════
 
+# Substitua a função montar_video() inteira no compilar_shorts.py
+
 def montar_video(audio_path: str, output_path: str) -> bool:
     print("\n🎬 Montando vídeo longo...")
     try:
-        from moviepy import AudioFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
+        from moviepy import AudioFileClip, ImageClip, CompositeVideoClip
         from PIL import Image, ImageFilter
         import numpy as np
         import itertools
 
-        W, H = 1920, 1080  # 16:9
+        W, H = 1920, 1080
 
         audio = AudioFileClip(audio_path)
         duracao = audio.duration
         print(f"  ⏱️ Duração: {duracao:.1f}s ({duracao/60:.1f}min)")
 
-        # Buscar imagens disponíveis
+        # Buscar imagens
         imagens = (
             glob.glob(f'{ASSETS_DIR}/politicos/**/*.jpg', recursive=True) +
             glob.glob(f'{ASSETS_DIR}/politicos/**/*.png', recursive=True) +
@@ -197,71 +199,51 @@ def montar_video(audio_path: str, output_path: str) -> bool:
 
         if not imagens:
             print("  ⚠️ Sem imagens — usando fundo sólido")
-            from moviepy.editor import ColorClip
-            clip = ColorClip(size=(W, H), color=(15,15,30), duration=duracao)
-            video = clip.set_audio(audio)
+            frame = np.full((H, W, 3), (15, 15, 30), dtype=np.uint8)
+            clip  = ImageClip(frame, duration=duracao)
+            video = clip.with_audio(audio)
         else:
             random.shuffle(imagens)
             duracao_por_img = 6.0
-            clips = []
-            tempo = 0.0
+            clips  = []
+            tempo  = 0.0
 
-            def fazer_frame_pillarbox(img_path, dur):
-                """Converte imagem 9:16 para 16:9 com pillarbox+blur."""
-                try:
-                    img = Image.open(img_path).convert('RGB')
-                    iw, ih = img.size
+            def pillarbox_array(img_path: str) -> np.ndarray:
+                """Retorna array numpy 1920x1080 com pillarbox+blur."""
+                img = Image.open(img_path).convert('RGB')
+                iw, ih = img.size
 
-                    # Fundo: escala para 1920x1080 e aplica blur forte
-                    ratio_bg = W / H
-                    if iw / ih > ratio_bg:
-                        bg = img.resize((W, int(W * ih / iw)), Image.LANCZOS)
-                    else:
-                        bg = img.resize((int(H * iw / ih), H), Image.LANCZOS)
+                # Fundo desfocado 1920x1080
+                ratio = W / H
+                if iw / ih > ratio:
+                    bg = img.resize((W, int(W * ih / iw)), Image.LANCZOS)
+                else:
+                    bg = img.resize((int(H * iw / ih), H), Image.LANCZOS)
+                bw, bh = bg.size
+                left = max(0, (bw - W) // 2)
+                top  = max(0, (bh - H) // 2)
+                bg   = bg.crop((left, top, left + W, top + H))
+                if bg.size != (W, H):
+                    bg = bg.resize((W, H), Image.LANCZOS)
+                bg = bg.filter(ImageFilter.GaussianBlur(radius=25))
 
-                    # Crop centralizado para 1920x1080
-                    bw, bh = bg.size
-                    left = (bw - W) // 2
-                    top  = (bh - H) // 2
-                    bg = bg.crop((max(0,left), max(0,top),
-                                  max(0,left)+W, max(0,top)+H))
-                    if bg.size != (W, H):
-                        bg = bg.resize((W, H), Image.LANCZOS)
-
-                    # Blur forte no fundo
-                    bg = bg.filter(ImageFilter.GaussianBlur(radius=25))
-
-                    # Frente: imagem original proporcional, altura = H
-                    scale = H / ih
-                    fw = int(iw * scale)
-                    fh = H
-                    if fw > W:  # se for mais larga, limita pela largura
-                        scale = W / iw
-                        fw = W
-                        fh = int(ih * scale)
-                    front = img.resize((fw, fh), Image.LANCZOS)
-
-                    # Centraliza a frente no fundo
-                    x = (W - fw) // 2
-                    y = (H - fh) // 2
-                    bg.paste(front, (x, y))
-
-                    frame = np.array(bg)
-                    return ImageClip(frame, duration=dur)
-                except Exception as e:
-                    print(f"    ⚠️ Pillarbox falhou ({e}), usando resize simples")
-                    clip = ImageClip(img_path, duration=dur)
-                    return clip.resize((W, H))
+                # Frente centralizada
+                scale = min(W / iw, H / ih)
+                fw = int(iw * scale)
+                fh = int(ih * scale)
+                front = img.resize((fw, fh), Image.LANCZOS)
+                x = (W - fw) // 2
+                y = (H - fh) // 2
+                bg.paste(front, (x, y))
+                return np.array(bg)
 
             for img_path in itertools.cycle(imagens):
                 if tempo >= duracao:
                     break
                 dur = min(duracao_por_img, duracao - tempo)
                 try:
-                    clip = fazer_frame_pillarbox(img_path, dur)
-                    # Zoom suave
-                    clip = clip.resize(lambda t: 1 + 0.015 * (t / dur))
-                    clip = clip.set_start(tempo)
+                    frame = pillarbox_array(img_path)
+                    clip  = ImageClip(frame, duration=dur).with_start(tempo)
                     clips.append(clip)
                     tempo += dur
                 except Exception as e:
@@ -273,8 +255,8 @@ def montar_video(audio_path: str, output_path: str) -> bool:
                 return False
 
             video_base = CompositeVideoClip(clips, size=(W, H))
-            video_base = video_base.set_duration(duracao)
-            video = video_base.set_audio(audio)
+            video_base = video_base.with_duration(duracao)
+            video      = video_base.with_audio(audio)
 
         os.makedirs(VIDEOS_DIR, exist_ok=True)
         print("  💾 Renderizando...")
@@ -288,7 +270,7 @@ def montar_video(audio_path: str, output_path: str) -> bool:
             threads=4,
             logger=None
         )
-        tamanho_mb = os.path.getsize(output_path) / (1024*1024)
+        tamanho_mb = os.path.getsize(output_path) / (1024 * 1024)
         print(f"  ✅ Vídeo: {output_path} ({tamanho_mb:.1f} MB)")
         return True
 
