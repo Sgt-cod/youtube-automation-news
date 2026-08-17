@@ -70,7 +70,7 @@ jobs:
           git config --local user.name "GitHub Action"
           git fetch origin main
           git checkout main
-          git pull origin main --rebase
+          git pull origin main --rebase --autostash
           touch videos_gerados.json
           git add -f videos_gerados.json
           git diff --staged --quiet || git commit -m "📱 Novo short gerado - $(date +'%Y-%m-%d %H:%M')"
