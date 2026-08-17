@@ -915,6 +915,7 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
     """Faz upload para YouTube"""
     try:
         creds_dict = json.loads(YOUTUBE_CREDENTIALS)
+        print(f"CLIENT_ID em uso (YouTube): {creds_dict.get('client_id')}")  # <- linha temporária
         credentials = Credentials.from_authorized_user_info(creds_dict)
         youtube = build('youtube', 'v3', credentials=credentials)
         
