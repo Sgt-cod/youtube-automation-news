@@ -2710,6 +2710,7 @@
     "com_thumbnail_custom": false
   },
   {
+<<<<<<< Updated upstream
     "data": "2026-08-28T22:00:04.234092",
     "tipo": "short",
     "tema": "Veja o que é #FATO e o que é #FAKE na sabatina de Augusto Cury a 'O Globo', 'Valor' e CBN",
@@ -2717,6 +2718,15 @@
     "duracao": 100.32,
     "video_id": "CatEE1ASeVo",
     "url": "https://youtube.com/shorts/CatEE1ASeVo",
+=======
+    "data": "2026-08-28T23:14:56.732526",
+    "tipo": "short",
+    "tema": "Arruda se defende no TRE após impugnações e diz que está elegível ao governo do DF",
+    "titulo": "Arruda se defende no TRE após impugnações e diz que está ... #shorts",
+    "duracao": 95.9,
+    "video_id": "6u2eVrHMou0",
+    "url": "https://youtube.com/shorts/6u2eVrHMou0",
+>>>>>>> Stashed changes
     "com_legendas": false,
     "com_thumbnail_custom": false
   }
