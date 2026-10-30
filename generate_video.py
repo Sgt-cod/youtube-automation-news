@@ -342,11 +342,6 @@ def extrair_keywords_do_texto(texto: str) -> list:
 
     return keywords[:8]
 
-# ============================================================
-# SUBSTITUA a função buscar_imagens_local() inteira no
-# generate_video.py por esta versão corrigida
-# ============================================================
-
 def buscar_imagens_local(segmento_texto: str, assets_dir: str = 'assets') -> tuple | None:
     """
     Busca imagem local para um segmento de texto.
@@ -508,7 +503,7 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
         
         segmentos_com_tempo.append({
             'texto': segmento[:50],           # Resumo curto (compatibilidade)
-            'texto_completo': segmento,        # ALTERAÇÃO: texto integral do segmento
+            'texto_completo': segmento,        # texto integral do segmento
             'inicio': tempo_atual,
             'duracao': duracao_segmento,
             'keywords': keywords
@@ -526,7 +521,7 @@ def analisar_roteiro_e_buscar_midias(roteiro, duracao_audio):
                 'inicio': seg['inicio'],
                 'duracao': seg['duracao'],
                 'texto': seg['texto'],
-                'texto_completo': seg['texto_completo'],  # ALTERAÇÃO: incluir texto completo
+                'texto_completo': seg['texto_completo'],
                 'keywords': seg['keywords']
             })
     
@@ -649,6 +644,19 @@ def preparar_clip_video(video_path, duracao_alvo, orientacao='short'):
         print(f"  ❌ Erro ao preparar clip de vídeo: {e}")
         return None
 
+def aplicar_zoom(clip, duracao, intensidade):
+    """
+    Zoom Ken Burns seguro.
+
+    - Fixa a duração de CADA clip via argumento padrão (evita o bug de closure,
+      em que a lambda usava o valor da última iteração do loop).
+    - Limita o progresso entre 0 e 1, então a escala nunca passa de 1 + intensidade.
+    """
+    d = max(float(duracao), 0.1)
+    return clip.resize(
+        lambda t, d=d, k=intensidade: 1 + k * min(max(t / d, 0.0), 1.0)
+    )
+
 def _mixar_musica_fundo(audio_narracao, duracao_total: float,
                          volume: float = 0.09,
                          musicas_dir: str = 'assets/musicas'):
@@ -728,7 +736,7 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
                     clip = clip.resize((1080, 1920))
                 
                 # ── Zoom Ken Burns (aplicado APÓS resize final) ──────────────
-                clip = clip.resize(lambda t: 1 + 0.04 * (t / duracao_clip))
+                clip = aplicar_zoom(clip, duracao_clip, 0.04)
                 clip = clip.set_start(inicio)
                 clips_imagem.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
@@ -737,23 +745,24 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
             print(f"  ⚠️ Erro mídia {i}: {e}")
     
     # Preenchimento reutilizando mídias já aprovadas
-    if tempo_coberto < duracao_total:
+    if tempo_coberto < duracao_total - 0.1:
         duracao_restante = duracao_total - tempo_coberto
         print(f"⚠️ Preenchendo {duracao_restante:.1f}s com mídias já aprovadas...")
-        if midias_sincronizadas:
+        # Só imagens entram no preenchimento (evita loop infinito se não houver nenhuma)
+        pool = [m for m in midias_sincronizadas
+                if m.get('midia') and m['midia'][1] in ('foto_local', 'imagem_local')]
+        if pool:
             import itertools
-            pool = list(midias_sincronizadas)
             for midia_item in itertools.cycle(pool):
-                if tempo_coberto >= duracao_total:
+                if tempo_coberto >= duracao_total - 0.1:
                     break
-                midia = midia_item.get('midia')
-                if not midia:
-                    continue
-                midia_info, midia_tipo = midia
+                midia_info, midia_tipo = midia_item['midia']
                 duracao_clip = min(midia_item.get('duracao', 3.0),
                                    duracao_total - tempo_coberto)
+                if duracao_clip < 0.1:
+                    break
                 try:
-                    if midia_tipo in ('foto_local', 'imagem_local') and os.path.exists(midia_info):
+                    if os.path.exists(midia_info):
                         clip = ImageClip(midia_info, duration=duracao_clip)
                         clip = clip.resize(height=1920)
                         if clip.w > 1080:
@@ -762,13 +771,19 @@ def criar_video_short_sem_legendas(audio_path, midias_sincronizadas, output_file
                             clip = clip.resize(width=1080)
                         if clip.size != (1080, 1920):
                             clip = clip.resize((1080, 1920))
-                        clip = clip.resize(lambda t: 1 + 0.04 * (t / duracao_clip))
+                        clip = aplicar_zoom(clip, duracao_clip, 0.04)
                         clip = clip.set_start(tempo_coberto)
                         clips_imagem.append(clip)
                         tempo_coberto += duracao_clip
+                    else:
+                        # arquivo sumiu: evita loop infinito
+                        tempo_coberto += 0.0
+                        pool = [m for m in pool if m['midia'][0] != midia_info]
+                        if not pool:
+                            break
                 except Exception as e:
                     print(f"  ⚠️ Erro ao reutilizar mídia: {e}")
-                    continue
+                    break
     
     if not clips_imagem:
         print("❌ Nenhum clip de imagem criado!")
@@ -838,7 +853,7 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
                     clip = clip.resize((1920, 1080))
                 
                 # ── Zoom Ken Burns (aplicado APÓS resize final) ──────────────
-                clip = clip.resize(lambda t: 1 + 0.03 * (t / duracao_clip))
+                clip = aplicar_zoom(clip, duracao_clip, 0.03)
                 clip = clip.set_start(inicio)
                 clips_imagem.append(clip)
                 tempo_coberto = max(tempo_coberto, inicio + duracao_clip)
@@ -847,23 +862,24 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
             print(f"  ⚠️ Erro {i}: {e}")
     
     # Preenchimento reutilizando mídias já aprovadas
-    if tempo_coberto < duracao_total:
+    if tempo_coberto < duracao_total - 0.1:
         duracao_restante = duracao_total - tempo_coberto
         print(f"⚠️ Preenchendo {duracao_restante:.1f}s com mídias já aprovadas...")
-        if midias_sincronizadas:
+        # Só imagens entram no preenchimento (evita loop infinito se não houver nenhuma)
+        pool = [m for m in midias_sincronizadas
+                if m.get('midia') and m['midia'][1] in ('foto_local', 'imagem_local')]
+        if pool:
             import itertools
-            pool = list(midias_sincronizadas)
             for midia_item in itertools.cycle(pool):
-                if tempo_coberto >= duracao_total:
+                if tempo_coberto >= duracao_total - 0.1:
                     break
-                midia = midia_item.get('midia')
-                if not midia:
-                    continue
-                midia_info, midia_tipo = midia
+                midia_info, midia_tipo = midia_item['midia']
                 duracao_clip = min(midia_item.get('duracao', 3.0),
                                    duracao_total - tempo_coberto)
+                if duracao_clip < 0.1:
+                    break
                 try:
-                    if midia_tipo in ('foto_local', 'imagem_local') and os.path.exists(midia_info):
+                    if os.path.exists(midia_info):
                         clip = ImageClip(midia_info, duration=duracao_clip)
                         clip = clip.resize(height=1080)
                         if clip.w < 1920:
@@ -872,13 +888,18 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
                                          width=1920, height=1080)
                         if clip.size != (1920, 1080):
                             clip = clip.resize((1920, 1080))
-                        clip = clip.resize(lambda t: 1 + 0.03 * (t / duracao_clip))
+                        clip = aplicar_zoom(clip, duracao_clip, 0.03)
                         clip = clip.set_start(tempo_coberto)
                         clips_imagem.append(clip)
                         tempo_coberto += duracao_clip
+                    else:
+                        # arquivo sumiu: remove do pool para evitar loop infinito
+                        pool = [m for m in pool if m['midia'][0] != midia_info]
+                        if not pool:
+                            break
                 except Exception as e:
                     print(f"  ⚠️ Erro ao reutilizar mídia: {e}")
-                    continue
+                    break
     
     if not clips_imagem:
         return None
@@ -1003,6 +1024,9 @@ def main():
         extras = buscar_midias_final(['brasil'], quantidade=5)
         tempo_restante = duracao - sum([m['duracao'] for m in midias_sincronizadas])
         duracao_extra = tempo_restante / len(extras) if extras else 0
+        # Evita clips com duração zero/negativa/minúscula
+        if duracao_extra < 0.1:
+            extras = []
         for extra in extras:
             midias_sincronizadas.append({
                 'midia': extra,
