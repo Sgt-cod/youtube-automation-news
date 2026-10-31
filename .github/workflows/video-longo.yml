@@ -1,0 +1,84 @@
+# Salve como .github/workflows/video-longo.yml
+name: Gerar Vídeo Longo
+
+on:
+  schedule:
+    # 16:07 UTC = 13:07 BRT (o minuto 7 evita o atraso de início de hora cheia)
+    - cron: '7 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: video-longo
+  cancel-in-progress: false
+
+jobs:
+  gerar-longo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240   # inclui o tempo esperando suas respostas no Telegram
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar FFmpeg e ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick
+
+      - name: Instalar dependências Python
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verificar bot do vídeo longo
+        env:
+          TELEGRAM_LONG_BOT_TOKEN: ${{ secrets.TELEGRAM_LONG_BOT_TOKEN }}
+        run: |
+          if [ -z "$TELEGRAM_LONG_BOT_TOKEN" ]; then
+            echo "::error::Secret TELEGRAM_LONG_BOT_TOKEN não configurado"
+            exit 1
+          fi
+
+      - name: Gerar vídeo longo
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
+          # Bot SEPARADO do dos shorts (não passe TELEGRAM_BOT_TOKEN aqui)
+          TELEGRAM_LONG_BOT_TOKEN: ${{ secrets.TELEGRAM_LONG_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          USAR_CURACAO: true
+          VIDEO_TYPE: long
+          LONG_NUM_NOTICIAS: 5
+          LONG_SEGUNDOS_POR_NOTICIA: 75
+          LONG_TIMEOUT_PERGUNTA: 1200
+        run: python generate_video.py
+
+      - name: Commit logs atualizados
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git fetch origin main
+          git checkout main
+          git pull origin main --rebase --autostash
+          touch videos_gerados.json
+          git add -f videos_gerados.json
+          git diff --staged --quiet || git commit -m "🎬 Novo vídeo longo gerado - $(date +'%Y-%m-%d %H:%M')"
+          git push origin main || git push --force-with-lease origin main
+
+      - name: Upload vídeo longo como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: longo-${{ github.run_number }}
+          path: videos/*.mp4
+          retention-days: 7
