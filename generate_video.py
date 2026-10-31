@@ -5,7 +5,9 @@ import re
 import asyncio
 import time
 import sys
-from datetime import datetime
+import shutil
+import traceback
+from datetime import datetime, timedelta, timezone
 import requests
 import feedparser
 import edge_tts
@@ -25,6 +27,14 @@ except ImportError:
     print("⚠️ telegram_curator_noticias.py não encontrado")
     CURACAO_DISPONIVEL = False
 
+# Curadoria do vídeo longo (módulo novo)
+try:
+    from telegram_curator_longo import TelegramCuratorLongo
+    CURADOR_LONGO_DISPONIVEL = True
+except ImportError:
+    print("⚠️ telegram_curator_longo.py não encontrado")
+    CURADOR_LONGO_DISPONIVEL = False
+
 CONFIG_FILE = 'config.json'
 VIDEOS_DIR = 'videos'
 ASSETS_DIR = 'assets'
@@ -37,6 +47,14 @@ YOUTUBE_CREDENTIALS = os.environ.get('YOUTUBE_CREDENTIALS')
 # Configuração de curadoria
 USAR_CURACAO = os.environ.get('USAR_CURACAO', 'false').lower() == 'true' and CURACAO_DISPONIVEL
 CURACAO_TIMEOUT = int(os.environ.get('CURACAO_TIMEOUT', '3600'))
+
+# ── Vídeo longo (resumo do dia) ──────────────────────────────────────────────
+USAR_CURACAO_ENV = os.environ.get('USAR_CURACAO', 'false').lower() == 'true'
+LONG_NUM_NOTICIAS = int(os.environ.get('LONG_NUM_NOTICIAS', '5'))
+LONG_SEGUNDOS_POR_NOTICIA = int(os.environ.get('LONG_SEGUNDOS_POR_NOTICIA', '75'))
+LONG_TIMEOUT_PERGUNTA = int(os.environ.get('LONG_TIMEOUT_PERGUNTA', '1200'))
+LONG_PAUSA_ENTRE_NOTICIAS = 0.6   # segundos de respiro entre uma notícia e outra
+LONG_TEMP_DIR = 'temp_longo'
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash-lite')
@@ -143,12 +161,11 @@ TÍTULO: {noticia['titulo']}
 RESUMO: {noticia['resumo']}
 
 REGRAS IMPORTANTES:
-- Aproximadamente {palavras_por_noticia} palavras (2 minutos de narração)
+- Aproximadamente {palavras_por_noticia} palavras (cerca de {duracao_por_noticia} segundos de narração)
 - Tom noticioso e informativo
 - Este é o segmento {i+1} de {len(noticias)} notícias
 - {"Comece com 'Em outras notícias' ou 'Também destaque de hoje' para criar transição" if i > 0 else "Comece direto na notícia"}
 - NÃO mencione apresentador, elementos visuais ou "vamos para"
-- Aproximadamente 200 palavras
 - Texto corrido para narração
 - SEM formatação, asteriscos, marcadores ou emojis
 - TERMINE o segmento de forma conclusiva para esta notícia específica
@@ -932,13 +949,23 @@ def criar_video_long_sem_legendas(audio_path, midias_sincronizadas, output_file,
     
     return output_file
     
-def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None):
+def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=None, publish_at=None):
     """Faz upload para YouTube"""
     try:
         creds_dict = json.loads(YOUTUBE_CREDENTIALS)
         print(f"CLIENT_ID em uso (YouTube): {creds_dict.get('client_id')}")  # <- linha temporária
         credentials = Credentials.from_authorized_user_info(creds_dict)
         youtube = build('youtube', 'v3', credentials=credentials)
+        
+        status = {
+            'privacyStatus': 'public',
+            'selfDeclaredMadeForKids': False
+        }
+        if publish_at is not None:
+            # Agendamento: o vídeo sobe como privado e o YouTube o torna público no horário
+            status['privacyStatus'] = 'private'
+            status['publishAt'] = publish_at.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            print(f"🗓️ Agendado para {status['publishAt']} (UTC)")
         
         body = {
             'snippet': {
@@ -947,10 +974,7 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
                 'tags': tags,
                 'categoryId': '27'
             },
-            'status': {
-                'privacyStatus': 'public',
-                'selfDeclaredMadeForKids': False
-            }
+            'status': status
         }
         
         media = MediaFileUpload(video_path, resumable=True)
@@ -981,7 +1005,366 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
         print(f"❌ Erro upload: {e}")
         raise
 
+# ========================================
+# VÍDEO LONGO — RESUMO DO DIA (curadoria opcional via Telegram)
+# ========================================
+
+def _clip_imagem_long(caminho, duracao):
+    """ImageClip 1920x1080 com zoom Ken Burns centralizado."""
+    clip = ImageClip(caminho, duration=duracao)
+    clip = clip.resize(height=1080)
+    if clip.w < 1920:
+        clip = clip.resize(width=1920)
+    clip = clip.crop(x_center=clip.w / 2, y_center=clip.h / 2, width=1920, height=1080)
+    if clip.size != (1920, 1080):
+        clip = clip.resize((1920, 1080))
+    clip = aplicar_zoom(clip, duracao, 0.03)
+    return clip.set_position(('center', 'center'))
+
+
+def montar_midias_para_texto(roteiro, duracao):
+    """
+    Divide o roteiro de UMA notícia em frases, escolhe uma imagem do repositório
+    para cada uma e distribui `duracao` proporcionalmente às palavras.
+    (Mesma lógica de busca do short, mas SEM curadoria por mídia.)
+    """
+    frases = [s.strip() for s in re.split(r'[.!?]\s+', roteiro) if len(s.strip()) > 20]
+    if not frases and roteiro.strip():
+        frases = [roteiro.strip()]
+    total_palavras = sum(len(f.split()) for f in frases) or 1
+
+    itens = []
+    for frase in frases:
+        midia = buscar_midias_final(frase, quantidade=1)
+        if midia:
+            itens.append({
+                'midia': midia[0],
+                'duracao': duracao * len(frase.split()) / total_palavras
+            })
+    return itens
+
+
+def construir_clip_noticia_imagens(roteiro, duracao):
+    """Monta o trecho de UMA notícia com imagens do repositório (duração exata)."""
+    import glob
+    itens = [m for m in montar_midias_para_texto(roteiro, duracao)
+             if m['midia'][1] in ('foto_local', 'imagem_local') and os.path.exists(m['midia'][0])]
+
+    if not itens:
+        genericas = (glob.glob(f'{ASSETS_DIR}/genericas/*.jpg') +
+                     glob.glob(f'{ASSETS_DIR}/genericas/*.jpeg') +
+                     glob.glob(f'{ASSETS_DIR}/genericas/*.png'))
+        if genericas:
+            itens = [{'midia': (random.choice(genericas), 'imagem_local'), 'duracao': duracao}]
+
+    # Redistribui para que a soma seja exatamente `duracao` (sem buracos nem sobras)
+    soma = sum(i['duracao'] for i in itens) or 1
+    escala = duracao / soma
+
+    clips = []
+    t = 0.0
+    for item in itens:
+        d = item['duracao'] * escala
+        try:
+            clips.append(_clip_imagem_long(item['midia'][0], d).set_start(t))
+            t += d
+        except Exception as e:
+            print(f"  ⚠️ Erro ao montar imagem: {e}")
+
+    if not clips:
+        print("  ⚠️ Nenhuma imagem disponível — usando tela preta neste trecho")
+        return ColorClip(size=(1920, 1080), color=(0, 0, 0), duration=duracao)
+
+    # Se alguma imagem falhou, estica o último clip para cobrir o tempo restante
+    if t < duracao - 0.05:
+        ultimo = clips[-1]
+        clips[-1] = ultimo.set_duration(ultimo.duration + (duracao - t))
+    return CompositeVideoClip(clips, size=(1920, 1080)).set_duration(duracao)
+
+
+def construir_clip_noticia_video(caminho, duracao):
+    """Trecho de UMA notícia usando o vídeo enviado pelo usuário (corta o excedente)."""
+    clip = preparar_clip_video(caminho, duracao, orientacao='long')
+    if clip is None:
+        return None
+    # Se o vídeo for até ~1s mais curto, o último frame é repetido
+    return clip.set_duration(duracao)
+
+
+def _validar_video_usuario(caminho, duracao_necessaria):
+    """Aceita vídeos com no máximo 1s a menos que a narração."""
+    d = obter_duracao_video(caminho)
+    if d is None:
+        return False, "Não consegui ler esse vídeo."
+    if d < duracao_necessaria - 1.0:
+        return False, (f"O vídeo tem {d:.0f}s, mas esta notícia precisa de pelo menos "
+                       f"{duracao_necessaria:.0f}s.")
+    if d > duracao_necessaria + 0.5:
+        return True, f"Vídeo recebido ({d:.0f}s) — vou cortar para {duracao_necessaria:.0f}s."
+    return True, f"Vídeo recebido ({d:.0f}s)."
+
+
+def _preparar_thumbnail(caminho):
+    """Converte para JPEG e garante menos de 2 MB (limite do YouTube)."""
+    try:
+        img = Image.open(caminho).convert('RGB')
+        img.thumbnail((1920, 1080))
+        destino = os.path.splitext(caminho)[0] + '_yt.jpg'
+        for qualidade in (92, 85, 75, 65):
+            img.save(destino, 'JPEG', quality=qualidade)
+            if os.path.getsize(destino) < 2 * 1024 * 1024:
+                break
+        return destino
+    except Exception as e:
+        print(f"⚠️ Erro ao preparar thumbnail: {e}")
+        return None
+
+
+def gerar_titulo_longo(noticias):
+    manchetes = '\n'.join(f"- {n['titulo']}" for n in noticias)
+    prompt = f"""Crie UM título de vídeo do YouTube em português do Brasil (máximo 85 caracteres) para um resumo diário de notícias com estas manchetes:
+
+{manchetes}
+
+REGRAS: destaque o assunto mais importante, tom jornalístico, sem clickbait enganoso, sem emojis, sem aspas. Retorne APENAS o título."""
+    try:
+        resp = model.generate_content(prompt)
+        titulo = resp.text.strip().split('\n')[0].strip(' "\'*#')
+        if len(titulo) >= 10:
+            return titulo[:100]
+    except Exception as e:
+        print(f"⚠️ Erro ao gerar título: {e}")
+    return f"Resumo do dia: {noticias[0]['titulo']}"[:100]
+
+
+def _fmt_timestamp(segundos):
+    s = int(segundos)
+    h, resto = divmod(s, 3600)
+    m, sec = divmod(resto, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
+
+
+def montar_descricao_longo(capitulos, noticias):
+    """Descrição com capítulos (timestamps) e fontes."""
+    linhas = ["Resumo das principais notícias do dia.", "", "⏱️ Capítulos:"]
+    for inicio, titulo in capitulos:
+        linhas.append(f"{_fmt_timestamp(inicio)} {titulo[:70]}")
+    linhas += ["", "📰 Fontes:"]
+    for n in noticias:
+        if n.get('link'):
+            linhas.append(f"- {n['link']}")
+    linhas += ["", "🔔 Inscreva-se!", "#noticias #politica #brasil"]
+    return '\n'.join(linhas).replace('<', '').replace('>', '')[:4900]
+
+
+def main_longo():
+    """Resumo do dia: N notícias, 1 narração por notícia, curadoria por notícia via Telegram."""
+    print("🎬 Iniciando VÍDEO LONGO (resumo do dia)...")
+    os.makedirs(VIDEOS_DIR, exist_ok=True)
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    os.makedirs(LONG_TEMP_DIR, exist_ok=True)
+
+    # ── Curador (opcional) ───────────────────────────────────────────────────
+    curador = None
+    if USAR_CURACAO_ENV:
+        if CURADOR_LONGO_DISPONIVEL:
+            try:
+                curador = TelegramCuratorLongo()
+            except Exception as e:
+                print(f"⚠️ Curadoria do longo indisponível: {e} — modo automático")
+        else:
+            print("⚠️ telegram_curator_longo.py não encontrado — modo automático")
+
+    # ── 1. Notícias e roteiros ───────────────────────────────────────────────
+    noticias = buscar_noticias(quantidade=LONG_NUM_NOTICIAS)
+    if isinstance(noticias, dict):
+        noticias = [noticias]
+    if not noticias:
+        print("❌ Nenhuma notícia encontrada")
+        return
+
+    roteiros = gerar_roteiro_segmentado(noticias, duracao_por_noticia=LONG_SEGUNDOS_POR_NOTICIA)
+    segmentos = roteiros['segmentos']
+    if len(segmentos) < 2:
+        print("❌ Roteiros insuficientes para um vídeo longo")
+        return
+
+    # ── 2. Uma narração por notícia (duração real de cada uma) ───────────────
+    itens = []
+    for i, seg in enumerate(segmentos, 1):
+        audio_i = f'{LONG_TEMP_DIR}/narracao_{i}.mp3'
+        try:
+            criar_audio(seg['roteiro'], audio_i)
+            a = AudioFileClip(audio_i)
+            dur = a.duration
+            a.close()
+        except Exception as e:
+            print(f"  ⚠️ Falha no áudio da notícia {i}: {e} — notícia descartada")
+            continue
+        itens.append({
+            'noticia': seg['noticia'],
+            'roteiro': seg['roteiro'],
+            'audio': audio_i,
+            'duracao_audio': dur,
+            'duracao_clip': dur + LONG_PAUSA_ENTRE_NOTICIAS,
+            'video_usuario': None,
+        })
+        print(f"  ⏱️ Notícia {i}: {dur:.1f}s")
+    if len(itens) < 2:
+        print("❌ Áudios insuficientes")
+        return
+
+    titulo_completo = gerar_titulo_longo([it['noticia'] for it in itens])
+    print(f"🎯 Título: {titulo_completo}")
+
+    # ── 3. Curadoria: fonte de cada notícia, thumbnail e agendamento ─────────
+    agendamento = None
+    thumbnail_path = None
+    if curador:
+        try:
+            curador.enviar_resumo([(it['noticia']['titulo'], it['duracao_audio']) for it in itens])
+            for n, it in enumerate(itens, 1):
+                it['video_usuario'] = curador.perguntar_fonte(
+                    n, len(itens), it['noticia']['titulo'], it['duracao_audio'],
+                    destino_base=f'{LONG_TEMP_DIR}/video_usuario_{n}',
+                    validar=lambda caminho, d=it['duracao_audio']: _validar_video_usuario(caminho, d),
+                    timeout=LONG_TIMEOUT_PERGUNTA)
+            bruta = curador.solicitar_thumbnail(
+                titulo_completo, destino_base=f'{LONG_TEMP_DIR}/thumbnail',
+                timeout=LONG_TIMEOUT_PERGUNTA)
+            if bruta:
+                thumbnail_path = _preparar_thumbnail(bruta)
+            agendamento = curador.perguntar_agendamento(timeout=LONG_TIMEOUT_PERGUNTA)
+            curador.enviar_mensagem("🎞️ Tudo certo! Montando o vídeo agora — aviso quando terminar.")
+        except Exception as e:
+            print(f"⚠️ Erro na curadoria do longo: {e} — seguindo com o que já foi respondido")
+            traceback.print_exc()
+
+    # ── 4. Montagem ──────────────────────────────────────────────────────────
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    video_path = f'{VIDEOS_DIR}/long_{timestamp}.mp4'
+    print(f"📹 Arquivo: {video_path}")
+
+    clips_noticia, audios, capitulos = [], [], []
+    inicio = 0.0
+    try:
+        for n, it in enumerate(itens, 1):
+            d = it['duracao_clip']
+            clip = None
+            if it['video_usuario']:
+                print(f"  🎬 Notícia {n}: vídeo enviado por você")
+                clip = construir_clip_noticia_video(it['video_usuario'], d)
+                if clip is None:
+                    print(f"  ⚠️ Falha no vídeo enviado — usando imagens do repositório")
+            if clip is None:
+                print(f"  🖼️ Notícia {n}: imagens do repositório")
+                clip = construir_clip_noticia_imagens(it['roteiro'], d)
+            clips_noticia.append(clip)
+            audios.append(AudioFileClip(it['audio']).set_start(inicio))
+            capitulos.append((inicio, it['noticia']['titulo']))
+            inicio += d
+        duracao_total = inicio
+        print(f"⏱️ Duração total: {duracao_total:.1f}s (~{duracao_total / 60:.1f} min)")
+
+        print("🎬 Compondo vídeo...")
+        video_base = concatenate_videoclips(clips_noticia, method='compose')
+        narracao = CompositeAudioClip(audios).set_duration(duracao_total)
+        audio_final = _mixar_musica_fundo(narracao, duracao_total, volume=0.06)
+        video_final = video_base.set_audio(audio_final)
+
+        print("💾 Renderizando...")
+        video_final.write_videofile(
+            video_path,
+            fps=24,
+            codec='libx264',
+            audio_codec='aac',
+            preset='veryfast',
+            bitrate='5000k',
+            threads=4
+        )
+        for c in [video_final] + audios + clips_noticia:
+            try:
+                c.close()
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"❌ Erro na montagem: {e}")
+        traceback.print_exc()
+        if curador:
+            try:
+                curador.enviar_mensagem(f"❌ Erro na montagem do vídeo longo: {str(e)[:200]}")
+            except Exception:
+                pass
+        return
+    print("✅ Vídeo criado!")
+
+    # ── 5. Upload (imediato ou agendado) ─────────────────────────────────────
+    titulo = titulo_completo[:100]
+    descricao = montar_descricao_longo(capitulos, [it['noticia'] for it in itens])
+    tags = ['noticias', 'informacao', 'politica', 'brasil', 'resumo do dia']
+
+    publish_at = None
+    if agendamento is not None:
+        if agendamento > datetime.now(timezone.utc) + timedelta(minutes=2):
+            publish_at = agendamento
+        else:
+            print("⚠️ O horário escolhido já passou durante a montagem — publicando agora")
+
+    print("\n📤 Upload YouTube...")
+    try:
+        video_id = fazer_upload_youtube(video_path, titulo, descricao, tags,
+                                        thumbnail_path, publish_at=publish_at)
+        url = f'https://youtube.com/watch?v={video_id}'
+        quando = (publish_at.astimezone(agendamento.tzinfo).strftime('%d/%m às %H:%M')
+                  if publish_at else None)
+        print(f"✅ {'Agendado para ' + quando if quando else 'Publicado'}!\n🔗 {url}")
+
+        log_file = 'videos_gerados.json'
+        logs = []
+        if os.path.exists(log_file):
+            with open(log_file, 'r', encoding='utf-8') as f:
+                logs = json.load(f)
+        logs.append({
+            'data': datetime.now().isoformat(),
+            'tipo': 'long',
+            'tema': titulo_completo,
+            'titulo': titulo,
+            'duracao': duracao_total,
+            'video_id': video_id,
+            'url': url,
+            'noticias': len(itens),
+            'videos_do_usuario': sum(1 for it in itens if it['video_usuario']),
+            'agendado_para': publish_at.isoformat() if publish_at else None,
+            'com_thumbnail_custom': thumbnail_path is not None
+        })
+        with open(log_file, 'w', encoding='utf-8') as f:
+            json.dump(logs, f, indent=2, ensure_ascii=False)
+
+        if curador:
+            try:
+                estado = f"⏰ Agendado para <b>{quando}</b>" if quando else "✅ Publicado"
+                curador.enviar_mensagem(f"{estado}\n📺 {titulo}\n🔗 {url}")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"❌ Erro no upload YouTube: {e}")
+        traceback.print_exc()
+        if curador:
+            try:
+                curador.enviar_mensagem(f"❌ Erro no upload do vídeo longo: {str(e)[:200]}")
+            except Exception:
+                pass
+
+    shutil.rmtree(LONG_TEMP_DIR, ignore_errors=True)
+    print("\n" + "=" * 60)
+    print("✅ WORKFLOW LONGO CONCLUÍDO")
+    print("=" * 60)
+
+
 def main():
+    if VIDEO_TYPE == 'long':
+        return main_longo()
+    
     print(f"{'📱' if VIDEO_TYPE == 'short' else '🎬'} Iniciando...")
     
     os.makedirs(VIDEOS_DIR, exist_ok=True)
