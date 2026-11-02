@@ -62,6 +62,12 @@ model = genai.GenerativeModel('gemini-2.5-flash-lite')
 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
     config = json.load(f)
 
+# ── Voz: Fish Audio (1ª opção) → Edge TTS (fallback). Sem gTTS. ──────────────
+FISH_API_KEY = os.environ.get('FISH_API_KEY')
+FISH_VOICE_ID = os.environ.get('FISH_VOICE_ID') or config.get('fish_voice_id')
+FISH_MODEL = os.environ.get('FISH_MODEL')   # opcional; sem valor, a API usa o modelo padrão
+FISH_SPEED = float(os.environ.get('FISH_SPEED', '1.0'))
+
 def buscar_noticias(quantidade=1):
     """Busca notícias dos feeds RSS configurados"""
     if config.get('tipo') != 'noticias':
@@ -281,27 +287,150 @@ async def criar_audio_async(texto, output_file):
     
     raise Exception("Edge TTS falhou")
 
-def criar_audio(texto, output_file):
-    """Cria áudio"""
-    print("🎙️ Criando narração...")
-    
+class TTSFalhou(Exception):
+    """Nenhum provedor de voz conseguiu gerar o áudio — o workflow deve ser cancelado."""
+
+
+def _fish_disponivel():
+    return bool(FISH_API_KEY and FISH_VOICE_ID)
+
+
+def _validar_audio(caminho, minimo=1.0):
     try:
-        loop = asyncio.new_event_loop()
+        a = AudioFileClip(caminho)
+        d = a.duration
+        a.close()
+        return d is not None and d >= minimo
+    except Exception:
+        return False
+
+
+def _criar_audio_fish(texto, output_file):
+    """Fish Audio via REST (POST /v1/tts). Reenvia em erro transitório; erro de chave/crédito não."""
+    headers = {'Authorization': f'Bearer {FISH_API_KEY}', 'Content-Type': 'application/json'}
+    if FISH_MODEL:
+        headers['model'] = FISH_MODEL
+    payload = {
+        'text': texto,
+        'reference_id': FISH_VOICE_ID,
+        'format': 'mp3',
+        'prosody': {'speed': FISH_SPEED},
+    }
+    ultimo_erro = 'desconhecido'
+    for tentativa in range(3):
+        try:
+            resp = requests.post('https://api.fish.audio/v1/tts', json=payload,
+                                 headers=headers, timeout=180)
+            if resp.status_code == 200:
+                if len(resp.content) > 2000:
+                    with open(output_file, 'wb') as f:
+                        f.write(resp.content)
+                    if _validar_audio(output_file):
+                        print("✅ Fish Audio")
+                        return
+                    ultimo_erro = 'áudio inválido'
+                else:
+                    ultimo_erro = 'resposta vazia'
+            elif resp.status_code in (400, 401, 402, 403, 422):
+                # chave inválida, sem crédito, voz inexistente...: repetir não adianta
+                raise TTSFalhou(f"Fish Audio HTTP {resp.status_code}: {resp.text[:200]}")
+            else:
+                ultimo_erro = f"HTTP {resp.status_code}: {resp.text[:120]}"
+        except TTSFalhou:
+            raise
+        except Exception as e:
+            ultimo_erro = type(e).__name__
+        print(f"⚠️ Fish Audio tentativa {tentativa + 1}: {ultimo_erro}")
+        if tentativa < 2:
+            time.sleep(5 * (tentativa + 1))
+    raise TTSFalhou(f"Fish Audio falhou ({ultimo_erro})")
+
+
+def _criar_audio_edge(texto, output_file):
+    loop = asyncio.new_event_loop()
+    try:
         asyncio.set_event_loop(loop)
         loop.run_until_complete(criar_audio_async(texto, output_file))
-        loop.close()
-        
-        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-            print(f"✅ Áudio criado")
-            return output_file
     except Exception as e:
-        print(f"❌ Edge TTS: {e}")
-        from gtts import gTTS
-        tts = gTTS(text=texto, lang='pt-br', slow=False)
-        tts.save(output_file)
-        print("⚠️ gTTS usado")
-    
-    return output_file
+        raise TTSFalhou(f"Edge TTS falhou ({e})") from None
+    finally:
+        loop.close()
+    if not (os.path.exists(output_file) and os.path.getsize(output_file) > 0
+            and _validar_audio(output_file)):
+        raise TTSFalhou("Edge TTS gerou um áudio inválido")
+
+
+def criar_audio(texto, output_file, provedor=None):
+    """
+    Ordem padrão: Fish Audio → Edge TTS. NÃO usa gTTS: se tudo falhar, levanta
+    TTSFalhou (o workflow é cancelado em vez de publicar com outra voz).
+    provedor='fish' ou 'edge' força um provedor específico, sem fallback.
+    """
+    print("🎙️ Criando narração...")
+    if provedor:
+        ordem = [provedor]
+    elif _fish_disponivel():
+        ordem = ['fish', 'edge']
+    else:
+        if FISH_API_KEY and not FISH_VOICE_ID:
+            print("⚠️ FISH_API_KEY definida, mas falta FISH_VOICE_ID — usando só Edge TTS")
+        ordem = ['edge']
+
+    erros = []
+    for p in ordem:
+        if os.path.exists(output_file):
+            os.remove(output_file)   # nunca reaproveitar áudio de execução anterior
+        try:
+            if p == 'fish':
+                if not _fish_disponivel():
+                    raise TTSFalhou("FISH_API_KEY / FISH_VOICE_ID não configurados")
+                _criar_audio_fish(texto, output_file)
+            else:
+                _criar_audio_edge(texto, output_file)
+            print(f"✅ Áudio criado ({p})")
+            return output_file
+        except TTSFalhou as e:
+            erros.append(f"{p}: {e}")
+            print(f"⚠️ {e}")
+            if p != ordem[-1]:
+                print("🔁 Tentando o próximo provedor...")
+    raise TTSFalhou(' | '.join(erros))
+
+
+def criar_audios_consistentes(textos, destinos):
+    """
+    Gera vários áudios do MESMO vídeo com a MESMA voz.
+    Tenta tudo no Fish; se QUALQUER trecho falhar, refaz TODOS no Edge
+    (evita misturar vozes no meio do vídeo). Se o último provedor falhar: TTSFalhou.
+    Devolve o nome do provedor usado.
+    """
+    provedores = ['fish', 'edge'] if _fish_disponivel() else ['edge']
+    erros = []
+    for p in provedores:
+        try:
+            for texto, destino in zip(textos, destinos):
+                criar_audio(texto, destino, provedor=p)
+            return p
+        except TTSFalhou as e:
+            erros.append(str(e))
+            if p != provedores[-1]:
+                print(f"🔁 {p} falhou — refazendo TODOS os trechos com o próximo provedor "
+                      f"para manter a mesma voz no vídeo inteiro")
+    raise TTSFalhou(' | '.join(erros))
+
+
+def _abortar_por_tts(erro, notificar=None):
+    """Cancela a execução (exit 1): nada é publicado e os passos seguintes do workflow não rodam."""
+    msg = ("❌ Falha na geração de voz — execução cancelada, nada foi publicado.\n"
+           + str(erro)[:300]).replace('<', '').replace('>', '')
+    print(msg)
+    if notificar:
+        try:
+            notificar(msg)
+        except Exception:
+            pass
+    sys.exit(1)
+
 
 def extrair_keywords_do_texto(texto: str) -> list:
     """
@@ -1189,18 +1318,19 @@ def main_longo():
         print("❌ Roteiros insuficientes para um vídeo longo")
         return
 
-    # ── 2. Uma narração por notícia (duração real de cada uma) ───────────────
+    # ── 2. Uma narração por notícia (mesma voz em todas; duração real de cada uma) ──
+    destinos = [f'{LONG_TEMP_DIR}/narracao_{i}.mp3' for i in range(1, len(segmentos) + 1)]
+    try:
+        provedor_voz = criar_audios_consistentes([sg['roteiro'] for sg in segmentos], destinos)
+    except TTSFalhou as e:
+        _abortar_por_tts(e, curador.enviar_mensagem if curador else None)
+    print(f"🎙️ Voz usada no vídeo inteiro: {provedor_voz}")
+
     itens = []
-    for i, seg in enumerate(segmentos, 1):
-        audio_i = f'{LONG_TEMP_DIR}/narracao_{i}.mp3'
-        try:
-            criar_audio(seg['roteiro'], audio_i)
-            a = AudioFileClip(audio_i)
-            dur = a.duration
-            a.close()
-        except Exception as e:
-            print(f"  ⚠️ Falha no áudio da notícia {i}: {e} — notícia descartada")
-            continue
+    for i, (seg, audio_i) in enumerate(zip(segmentos, destinos), 1):
+        a = AudioFileClip(audio_i)
+        dur = a.duration
+        a.close()
         itens.append({
             'noticia': seg['noticia'],
             'roteiro': seg['roteiro'],
@@ -1210,9 +1340,6 @@ def main_longo():
             'video_usuario': None,
         })
         print(f"  ⏱️ Notícia {i}: {dur:.1f}s")
-    if len(itens) < 2:
-        print("❌ Áudios insuficientes")
-        return
 
     titulo_completo = gerar_titulo_longo([it['noticia'] for it in itens])
     print(f"🎯 Título: {titulo_completo}")
@@ -1391,7 +1518,16 @@ def main():
     
     # Criar áudio
     audio_path = f'{ASSETS_DIR}/audio.mp3'
-    criar_audio(roteiro, audio_path)
+    try:
+        criar_audio(roteiro, audio_path)
+    except TTSFalhou as e:
+        notificar = None
+        if USAR_CURACAO:
+            try:
+                notificar = TelegramCuratorNoticias().enviar_mensagem
+            except Exception:
+                pass
+        _abortar_por_tts(e, notificar)
     
     audio_clip = AudioFileClip(audio_path)
     duracao = audio_clip.duration
