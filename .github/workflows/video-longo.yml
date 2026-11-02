@@ -53,6 +53,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          FISH_API_KEY: ${{ secrets.FISH_API_KEY }}
+          FISH_VOICE_ID: ${{ secrets.FISH_VOICE_ID }}
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
           # Bot SEPARADO do dos shorts (não passe TELEGRAM_BOT_TOKEN aqui)
           TELEGRAM_LONG_BOT_TOKEN: ${{ secrets.TELEGRAM_LONG_BOT_TOKEN }}
