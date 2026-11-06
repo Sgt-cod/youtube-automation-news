@@ -55,6 +55,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           FISH_API_KEY: ${{ secrets.FISH_API_KEY }}
           FISH_VOICE_ID: ${{ secrets.FISH_VOICE_ID }}
+          FISH_MODEL: s2.1-pro-free
           YOUTUBE_CREDENTIALS: ${{ secrets.YOUTUBE_CREDENTIALS }}
           # Bot SEPARADO do dos shorts (não passe TELEGRAM_BOT_TOKEN aqui)
           TELEGRAM_LONG_BOT_TOKEN: ${{ secrets.TELEGRAM_LONG_BOT_TOKEN }}
