@@ -17,7 +17,7 @@ from google import generativeai as genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # Importar curadoria
 try:
@@ -55,6 +55,9 @@ LONG_SEGUNDOS_POR_NOTICIA = int(os.environ.get('LONG_SEGUNDOS_POR_NOTICIA', '75'
 LONG_TIMEOUT_PERGUNTA = int(os.environ.get('LONG_TIMEOUT_PERGUNTA', '1200'))
 LONG_PAUSA_ENTRE_NOTICIAS = 0.6   # segundos de respiro entre uma notícia e outra
 LONG_TEMP_DIR = 'temp_longo'
+LONG_CARD = os.environ.get('LONG_CARD', 'true').lower() == 'true'          # card na parte inferior
+LONG_CARD_ROTULO = os.environ.get('LONG_CARD_ROTULO', 'CANAL 55')          # texto do bloco vermelho
+LONG_CARD_SEGUNDOS = float(os.environ.get('LONG_CARD_SEGUNDOS', '0'))      # 0 = durante toda a notícia
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash-lite')
@@ -1138,6 +1141,204 @@ def fazer_upload_youtube(video_path, titulo, descricao, tags, thumbnail_path=Non
 # VÍDEO LONGO — RESUMO DO DIA (curadoria opcional via Telegram)
 # ========================================
 
+# ── Card (lower third) do vídeo longo ───────────────────────────────────────
+
+_AVISOU_FONTE = False
+
+def _carregar_fonte(tamanho, negrito=True):
+    """Prioriza a Poppins em assets/fonts/; depois fontes comuns do sistema."""
+    global _AVISOU_FONTE
+    if negrito:
+        candidatos = [f'{ASSETS_DIR}/fonts/Poppins-Bold.ttf', f'{ASSETS_DIR}/fonts/Poppins-SemiBold.ttf',
+                      '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+                      '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']
+    else:
+        candidatos = [f'{ASSETS_DIR}/fonts/Poppins-Medium.ttf', f'{ASSETS_DIR}/fonts/Poppins-Regular.ttf',
+                      '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+                      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
+    for caminho in candidatos:
+        if os.path.exists(caminho):
+            return ImageFont.truetype(caminho, tamanho)
+    if not _AVISOU_FONTE:
+        print("⚠️ Nenhuma fonte TTF encontrada (coloque Poppins-Bold.ttf em assets/fonts/)")
+        _AVISOU_FONTE = True
+    return ImageFont.load_default()
+
+
+def _ajustar_texto(draw, texto, caminho_negrito, tam_max, tam_min, largura_max):
+    """Reduz a fonte até o texto caber; se ainda não couber, corta com reticências."""
+    for tam in range(tam_max, tam_min - 1, -2):
+        fonte = _carregar_fonte(tam, negrito=caminho_negrito)
+        if draw.textlength(texto, font=fonte) <= largura_max:
+            return texto, fonte
+    fonte = _carregar_fonte(tam_min, negrito=caminho_negrito)
+    while len(texto) > 4 and draw.textlength(texto + '…', font=fonte) > largura_max:
+        texto = texto[:-1].rstrip()
+    return texto + '…', fonte
+
+
+def renderizar_card(rotulo, headline, apoio=None):
+    """
+    Desenha o card (estilo telejornal): bloco vermelho com o rótulo à esquerda,
+    barra escura com a manchete e faixa vermelha com a linha de apoio.
+    Devolve uma imagem PIL RGBA com fundo transparente.
+    """
+    S = 2                       # supersampling para bordas suaves
+    W, H = 1640, 200            # tamanho final (1x)
+    BLOCO_W, ALTURA = 360, 170
+    BARRA_X = BLOCO_W - 20
+
+    def s(v):
+        return int(round(v * S))
+
+    img = Image.new('RGBA', (s(W), s(H)), (0, 0, 0, 0))
+
+    # Sombra suave
+    sombra = Image.new('RGBA', img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sombra).rectangle([s(30), s(30), s(W - 10), s(ALTURA + 18)], fill=(0, 0, 0, 120))
+    sombra = sombra.filter(ImageFilter.GaussianBlur(s(14)))
+    img = Image.alpha_composite(img, sombra)
+
+    camada = Image.new('RGBA', img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(camada)
+
+    # Barra escura (manchete) e faixa vermelha (apoio)
+    d.rectangle([s(BARRA_X), s(24), s(W), s(124)], fill=(28, 43, 54, 255))
+    d.rectangle([s(BARRA_X), s(124), s(W), s(ALTURA)], fill=(214, 20, 58, 255))
+    d.rectangle([s(BARRA_X), s(18), s(BARRA_X + int((W - BARRA_X) * 0.72)), s(24)], fill=(226, 24, 63, 255))
+
+    # Bloco vermelho com gradiente vertical e canto inferior esquerdo arredondado
+    grad = np.zeros((s(ALTURA), s(BLOCO_W), 4), dtype=np.uint8)
+    topo, base = np.array([236, 30, 72]), np.array([172, 8, 38])
+    for y in range(s(ALTURA)):
+        grad[y, :, :3] = (topo + (base - topo) * (y / max(1, s(ALTURA) - 1))).astype(np.uint8)
+    grad[:, :, 3] = 255
+    bloco = Image.fromarray(grad, 'RGBA')
+    mascara = Image.new('L', bloco.size, 0)
+    md = ImageDraw.Draw(mascara)
+    raio = s(40)
+    try:
+        md.rounded_rectangle([0, 0, bloco.size[0] - 1, bloco.size[1] - 1], radius=raio, fill=255)
+        md.rectangle([0, 0, raio, raio], fill=255)                                   # canto sup. esquerdo reto
+        md.rectangle([bloco.size[0] - raio, 0, bloco.size[0], bloco.size[1]], fill=255)  # lado direito reto
+    except AttributeError:
+        md.rectangle([0, 0, bloco.size[0], bloco.size[1]], fill=255)
+    camada.paste(bloco, (0, 0), mascara)
+
+    d = ImageDraw.Draw(camada)
+
+    # Rótulo (ex.: "CANAL 55" -> duas linhas)
+    linhas = rotulo.upper().split(' ', 1)
+    fonte_rotulo = _carregar_fonte(s(68), negrito=True)
+    alturas = []
+    for ln in linhas:
+        bb = d.textbbox((0, 0), ln, font=fonte_rotulo)
+        alturas.append(bb[3] - bb[1])
+    espaco = s(10)
+    total = sum(alturas) + espaco * (len(linhas) - 1)
+    y = (s(ALTURA) - total) // 2
+    for ln, h in zip(linhas, alturas):
+        bb = d.textbbox((0, 0), ln, font=fonte_rotulo)
+        x = (s(BLOCO_W) - (bb[2] - bb[0])) // 2 - bb[0] - s(6)
+        d.text((x, y - bb[1]), ln, font=fonte_rotulo, fill=(255, 255, 255, 255))
+        y += h + espaco
+
+    # Manchete (maiúsculas, cabe na barra)
+    largura_util = s(W - BARRA_X - 90)
+    texto_h, fonte_h = _ajustar_texto(d, headline.upper(), True, s(58), s(34), largura_util)
+    bb = d.textbbox((0, 0), texto_h, font=fonte_h)
+    d.text((s(BARRA_X + 44), s(74) - (bb[1] + bb[3]) // 2), texto_h, font=fonte_h, fill=(255, 255, 255, 255))
+
+    # Linha de apoio
+    if apoio:
+        texto_a, fonte_a = _ajustar_texto(d, apoio, False, s(27), s(20), largura_util)
+        bb = d.textbbox((0, 0), texto_a, font=fonte_a)
+        d.text((s(BARRA_X + 44), s(147) - (bb[1] + bb[3]) // 2), texto_a, font=fonte_a, fill=(255, 255, 255, 255))
+
+    img = Image.alpha_composite(img, camada)
+    return img.resize((W, H), Image.LANCZOS)
+
+
+def criar_card_clip(card, duracao):
+    """Card animado (desliza + fade) para ficar sobre o trecho de UMA notícia."""
+    img = renderizar_card(LONG_CARD_ROTULO, card['headline'], card.get('apoio'))
+    w, h = img.size
+    inicio = 0.5
+    if LONG_CARD_SEGUNDOS > 0:
+        dur = min(LONG_CARD_SEGUNDOS, duracao - inicio - 0.3)
+    else:
+        dur = duracao - inicio - 0.3          # durante toda a notícia
+    dur = max(dur, 1.0)
+
+    clip = ImageClip(np.array(img), duration=dur)        # o canal alfa vira máscara
+    if dur > 2.5:
+        clip = clip.crossfadein(0.5).crossfadeout(0.5)
+    x = (1920 - w) // 2
+    y_final = 1080 - h - 40
+
+    def posicao(t):
+        p = min(max(t / 0.6, 0.0), 1.0)
+        ease = 1 - (1 - p) ** 3
+        return (x, y_final + int((1 - ease) * 70))
+
+    return clip.set_position(posicao).set_start(inicio)
+
+
+def _limpar_html(texto):
+    return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', texto or '')).strip()
+
+
+def _cortar_palavras(texto, limite):
+    texto = texto.strip(' "\'.')
+    if len(texto) <= limite:
+        return texto
+    corte = texto[:limite].rsplit(' ', 1)[0]
+    return corte.strip(' ,;:-') or texto[:limite]
+
+
+def _card_fallback(noticia):
+    titulo = noticia['titulo']
+    return {'headline': _cortar_palavras(' '.join(titulo.split()[:4]), 26),
+            'apoio': _cortar_palavras(titulo, 100)}
+
+
+def gerar_textos_card(noticias):
+    """
+    Uma chamada ao Gemini devolve, para cada notícia, a manchete curta do card
+    ("Escala 6x1", "Ajuste Fiscal"...) e uma linha de apoio. Se algo falhar,
+    usa o título da notícia.
+    """
+    blocos = []
+    for i, n in enumerate(noticias, 1):
+        resumo = _limpar_html(n.get('resumo', ''))[:300]
+        blocos.append(f"{i}. TÍTULO: {n['titulo']}\n   RESUMO: {resumo}")
+    prompt = f"""Para cada notícia abaixo, crie o texto de um card de telejornal.
+
+{chr(10).join(blocos)}
+
+REGRAS:
+- "headline": manchete CURTÍSSIMA de 2 a 4 palavras, no máximo 24 caracteres, sem ponto final e sem aspas. Exemplos: "Blindados para Lula", "Tarcísio 2030", "Escala 6x1", "Ajuste Fiscal", "Bolsonaro na UTI".
+- "apoio": uma frase factual de até 90 caracteres que complementa a manchete, sem opinião e sem repetir a manchete.
+- Use SOMENTE informações presentes no título e no resumo. Não invente nada.
+- Retorne APENAS um JSON: uma lista com {len(noticias)} objetos, na mesma ordem, no formato [{{"headline": "...", "apoio": "..."}}]"""
+
+    cards = [_card_fallback(n) for n in noticias]
+    try:
+        resp = model.generate_content(prompt)
+        texto = resp.text.strip().replace('```json', '').replace('```', '').strip()
+        dados = json.loads(texto[texto.find('['):texto.rfind(']') + 1])
+        for i, item in enumerate(dados[:len(noticias)]):
+            h = _cortar_palavras(str(item.get('headline', '')), 28)
+            a = _cortar_palavras(str(item.get('apoio', '')), 100)
+            if len(h) >= 3:
+                cards[i]['headline'] = h
+            if len(a) >= 10:
+                cards[i]['apoio'] = a
+    except Exception as e:
+        print(f"⚠️ Cards: usando títulos das notícias ({e})")
+    return cards
+
+
 def _clip_imagem_long(caminho, duracao):
     """ImageClip 1920x1080 com zoom Ken Burns centralizado."""
     clip = ImageClip(caminho, duration=duracao)
@@ -1344,12 +1545,19 @@ def main_longo():
     titulo_completo = gerar_titulo_longo([it['noticia'] for it in itens])
     print(f"🎯 Título: {titulo_completo}")
 
+    # Textos do card (manchete curta + linha de apoio) de cada notícia
+    if LONG_CARD:
+        for it, card in zip(itens, gerar_textos_card([it['noticia'] for it in itens])):
+            it['card'] = card
+            print(f"  🏷️ Card: {card['headline']} — {card['apoio']}")
+
     # ── 3. Curadoria: fonte de cada notícia, thumbnail e agendamento ─────────
     agendamento = None
     thumbnail_path = None
     if curador:
         try:
-            curador.enviar_resumo([(it['noticia']['titulo'], it['duracao_audio']) for it in itens])
+            curador.enviar_resumo([(it['noticia']['titulo'], it['duracao_audio'],
+                                    (it.get('card') or {}).get('headline')) for it in itens])
             for n, it in enumerate(itens, 1):
                 it['video_usuario'] = curador.perguntar_fonte(
                     n, len(itens), it['noticia']['titulo'], it['duracao_audio'],
@@ -1386,6 +1594,12 @@ def main_longo():
             if clip is None:
                 print(f"  🖼️ Notícia {n}: imagens do repositório")
                 clip = construir_clip_noticia_imagens(it['roteiro'], d)
+            if it.get('card'):
+                try:
+                    card_clip = criar_card_clip(it['card'], d)
+                    clip = CompositeVideoClip([clip, card_clip], size=(1920, 1080)).set_duration(d)
+                except Exception as e:
+                    print(f"  ⚠️ Card não aplicado na notícia {n}: {e}")
             clips_noticia.append(clip)
             audios.append(AudioFileClip(it['audio']).set_start(inicio))
             capitulos.append((inicio, it['noticia']['titulo']))
