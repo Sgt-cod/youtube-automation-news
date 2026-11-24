@@ -177,11 +177,15 @@ class TelegramCuratorLongo:
     # ------------------------------------------------------------------
     def enviar_resumo(self, itens):
         """itens: lista de (titulo, duracao_em_segundos)."""
-        total = sum(d for _, d in itens)
+        total = sum(item[1] for item in itens)
         linhas = [f"🎬 <b>Vídeo longo — resumo do dia</b>",
                   f"{len(itens)} notícias • ~{total / 60:.1f} min de narração", ""]
-        for i, (titulo, dur) in enumerate(itens, 1):
+        for i, item in enumerate(itens, 1):
+            titulo, dur = item[0], item[1]
+            card = item[2] if len(item) > 2 else None
             linhas.append(f"<b>{i}.</b> {_seg(dur)} — {html.escape(titulo[:80])}")
+            if card:
+                linhas.append(f"      🏷️ Card: <b>{html.escape(card)}</b>")
         linhas += ["", "Vou perguntar, uma por vez, como montar cada notícia."]
         self.enviar_mensagem('\n'.join(linhas))
 
